@@ -69,10 +69,14 @@ public:
     bool setCalibrationLinear();
     //获取线性标定参数
     void getCalibrationLinear(double& outA, double& outB) const;
+    void setIsLinearCalib(bool isLinear){ m_hasLinearCalib = isLinear; }
 
-    // 对指定索引的图片执行测高，并返回测量值（mm），若该图片未识别光斑或无法计算则返回 empty
-    // 计算逻辑：优先使用线性标定（calibA/B），否则如果已设置 pxToMm 则可返回 distance_mm（作为高度或中间量）
-    std::optional<double> measureHeightForImage(size_t index) const;
+    // 加载测试图片信息
+    bool loadTestImageInfo();
+    //计算待测图片信息
+    bool computeTestImageInfo();
+    //执行测高，并返回测量值（mm），若该图片未识别光斑或无法计算则返回 empty
+    std::optional<double> measureHeightForImage() const;
 
     //ROI
     // 设置光斑识别区域（以图像坐标系的矩形表示），后续识别会在该 ROI 内进行
@@ -85,6 +89,7 @@ public:
 
 private:
     std::vector<ImageInfo> m_images;
+    ImageInfo m_testImageInfo; // 测量图像信息
     cv::Rect m_roi{0,0,0,0};
     double m_stepMm = 2.0;         // 默认采样间隔（mm）
     
@@ -106,6 +111,9 @@ private:
     void sortImagesByName();
     // 根据 distancePx 对图像进行排序
     void rankImagesByDistancePx();
+    bool processImage(const cv::Mat& input,
+                      std::vector<std::pair<cv::Point2f, float>>& detectedSpots,
+                      cv::Mat* debugOutput = nullptr) const;
 };
 
 } // namespace Height::core

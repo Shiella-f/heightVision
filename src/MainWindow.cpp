@@ -63,17 +63,38 @@ void MainWindow::LoadFile()
     }
 }
 
-//选择基准图片并开始测高
+//开始测高
 void MainWindow::StartTest() 
 {
-    //待实现
+    if (!m_heightCore) {
+        QMessageBox::critical(this, QStringLiteral("错误"), QStringLiteral("测高引擎未初始化"));
+        return;
+    }
+    if(!m_heightCore->computeTestImageInfo()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("图像光斑识别失败"));
+        return;
+    }
+    m_TestHeight = m_heightCore->measureHeightForImage().value_or(-1.0);
+    if (m_TestHeight < 0.0) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("测高失败"));
+        return;
+    }
+    qDebug() << "Measured Height (mm):" << m_TestHeight;
+    QMessageBox::information(this, QStringLiteral("测高结果"), QStringLiteral("测量高度为: %1 mm").arg(m_TestHeight));
 }
 
 
 //选择图片显示测高结果
 void MainWindow::SelectImage() 
 {
-    //待实现
+    if (!m_heightCore) {
+        QMessageBox::critical(this, QStringLiteral("错误"), QStringLiteral("测高引擎未初始化"));
+        return;
+    }
+    if(!m_heightCore->loadTestImageInfo()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请选择有效的测试图片"));
+        return;
+    }
 }
 //显示当前图片高度
 void MainWindow::SetPreference() 
@@ -114,7 +135,7 @@ void MainWindow::SetPreference()
     vector<double> distancePxList = m_heightCore->getDistancePxList();
     vector<double> heightList = m_heightCore->getHeightList();
 
-    m_heightCore->setCalibrationLinear();
+    m_heightCore->setIsLinearCalib(m_heightCore->setCalibrationLinear());
 
 
     qDebug() << "Computed Heights:";

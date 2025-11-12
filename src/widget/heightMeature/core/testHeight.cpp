@@ -35,6 +35,7 @@ bool HeightCore::loadFolder()
     //     QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     const QString folderPath = "E:/lipoDemo/HeiVersion/res/image";
     m_images.clear();
+    setIsLinearCalib(false);
 
     if (folderPath.isEmpty()) {
         return false;
@@ -60,8 +61,6 @@ bool HeightCore::loadFolder()
     }
     return !m_images.empty();
 }
-
-
 
 const std::vector<HeightCore::ImageInfo>& HeightCore::getImageInfos() const
 {
@@ -89,106 +88,23 @@ bool HeightCore::detectTwoSpotsInImage()
         if (img.empty()) {
             continue; // 无法加载图像，跳过
         }
-
-        // 预处理：直接在原始尺寸上获取灰度图并降噪
-        cv::Mat gray;
-        cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY); // 转灰度
-        cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);  // 高斯模糊抑制噪声
-
-        // 自适应阈值 + 形态学闭运算，将光斑凸显出来
-        cv::Mat thresh;
-        threshold(gray, thresh, 100, 255, THRESH_BINARY);
-        // namedWindow("Threshold", cv::WINDOW_NORMAL);
-        // imshow("Threshold", thresh);
-        // cv::waitKey(0);
-        cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
-        cv::Mat closed;
-        cv::morphologyEx(thresh, closed, cv::MORPH_CLOSE, element); // 填补小孔，保留圆形区域
-        // namedWindow("Closed", cv::WINDOW_NORMAL);
-        // imshow("Closed", closed);
-        //cv::waitKey(0);
-
-        // 查找候选轮廓并基于面积/圆度进行筛选，同时准备亚像素求精
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(closed, contours, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
-        drawContours(img, contours, -1, cv::Scalar(255, 0, 0), 2); // 绘制所有轮廓以便调试观察
-        cv::Mat tempimage = img.clone();
-        cv::resize(tempimage, tempimage, cv::Size(800, 600));
-        //imshow("Contours", tempimage);
-        cv::waitKey(0);
-
-        std::vector<std::pair<float, cv::Point2f>> candidates; // 暂存半径和圆心，便于后续筛选
-        for (const auto& contour : contours) {
-            const double area = cv::contourArea(contour);
-                //qDebug() << "Contour area:" << area;
-            if (area < 50.0 || area > 5000.0) {
-                continue; // 忽略面积过小/过大的候选
-            }
-
-            const double perimeter = cv::arcLength(contour, true);
-            if (perimeter <= 0.0) {
-                continue;
-            }
-
-            const double circularity = 4.0 * CV_PI * area / (perimeter * perimeter);
-            if (circularity < 0.5) {
-                continue; // 过滤掉非圆形轮廓
-            }
-
-            // 使用最小外接圆拟合轮廓，得到近似圆心与半径
-            cv::Point2f center;
-            float radius = 0.0f;
-            cv::minEnclosingCircle(contour, center, radius);
-
-            // 通过角点细化(pxiel准确度 refine)获取亚像素级中心
-            std::vector<cv::Point2f> contourPoints;
-            contourPoints.reserve(contour.size());
-            for (const cv::Point& pt : contour) {
-                contourPoints.emplace_back(static_cast<float>(pt.x), static_cast<float>(pt.y));
-            }
-
-            if (!contourPoints.empty()) {
-                cv::cornerSubPix(gray,
-                                 contourPoints,
-                                 cv::Size(5, 5),
-                                 cv::Size(-1, -1),
-                                 cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
-                                                  45,
-                                                  0.01));
-
-                // 使用细化后的点重新计算质心，作为亚像素中心
-                double sx = 0.0;
-                double sy = 0.0;
-                for (const auto& pt : contourPoints) {
-                    sx += pt.x;
-                    sy += pt.y;
-                }
-                const double inv = 1.0 / static_cast<double>(contourPoints.size());
-                center.x = static_cast<float>(sx * inv);
-                center.y = static_cast<float>(sy * inv);
-            }
-
-            candidates.emplace_back(radius, center);
+        std::vector<std::pair<cv::Point2f, float>> detectedSpots;
+        cv::Mat debugView;
+        if (!processImage(img, detectedSpots, &debugView)) {
+            continue;
         }
-        qDebug() << "candidates found:" << candidates.size();
 
-        // 按半径从大到小排序，通常较大的圆对应有效光斑
-        std::sort(candidates.begin(), candidates.end(),
-                  [](const auto& lhs, const auto& rhs) { return lhs.first > rhs.first; });
-
-        // 只保留前两个圆心，符合“双光斑”业务需求
         std::vector<cv::Point2f> centersForImage;
-        for (size_t i = 0; i < candidates.size() && i < 2; ++i) {
-            centersForImage.push_back(candidates[i].second);
-            const float radius = candidates[i].first;
-            cv::Point2f center = candidates[i].second;
-
-            // 在原图上画出圆心和圆轮廓，便于调试观察
-            cv::circle(img, center, static_cast<int>(radius), cv::Scalar(0, 255, 0), 2);
-            cv::circle(img, center, 3, cv::Scalar(0, 0, 255), cv::FILLED);
+        centersForImage.reserve(std::min<size_t>(2, detectedSpots.size()));
+        for (size_t i = 0; i < detectedSpots.size() && i < 2; ++i) {
+            centersForImage.push_back(detectedSpots[i].first);
+            const float radius = detectedSpots[i].second;
+            cv::circle(debugView, centersForImage.back(), static_cast<int>(radius), cv::Scalar(0, 255, 0), 2);
+            cv::circle(debugView, centersForImage.back(), 3, cv::Scalar(0, 0, 255), cv::FILLED);
         }
 
-        if (!centersForImage.empty()) {
+        if (!centersForImage.empty()) 
+        {
             hasDetection = true;
             // 累积保存圆心结果，供外部查询或后续处理
             m_lastDetectedCenters.insert(m_lastDetectedCenters.end(),
@@ -198,12 +114,6 @@ bool HeightCore::detectTwoSpotsInImage()
             if (!centersForImage.empty()) {
                 imageInfo.spot1Found = true;
                 imageInfo.spot1Pos = centersForImage[0];
-                if(centersForImage.size() == 1)
-                {
-                    imageInfo.spot2Found = false;
-                    imageInfo.distancePx = 0;
-                    imageInfo.spot2Pos = cv::Point2f();
-                }
             }
             if (centersForImage.size() > 1) {
                 imageInfo.spot2Found = true;
@@ -216,10 +126,15 @@ bool HeightCore::detectTwoSpotsInImage()
             }
 
             // 展示处理效果图（包含拟合圆），快速确认检测质量
-            pyrDown(img, img);
-            cv::imshow("Detected Spots", img);
-            auto key = cv::waitKey(0);
-            if (key == 27) { // 按下 ESC 键退出
+            if (!debugView.empty()) {
+                cv::Mat display = debugView.clone();
+                pyrDown(display, display);
+                cv::imshow("Detected Spots", display);
+                auto key = cv::waitKey(0);
+                if (key == 27) { // 按下 ESC 键退出
+                    break;
+                }
+            } else {
                 break;
             }
         }
@@ -390,30 +305,108 @@ void HeightCore::getCalibrationLinear(double& outA, double& outB) const
     qDebug() << "拟合直线:y = " << outA << "x + " << outB;
 }
 
-std::optional<double> HeightCore::measureHeightForImage(size_t index) const
+bool HeightCore::loadTestImageInfo()
 {
-    if (index >= m_images.size()) {
-        return std::nullopt; // 索引越界
+    const QString m_testImagePath = QFileDialog::getOpenFileName(nullptr, ("打开图片"), "", ("Images (*.png *.xpm *.jpg *.bmp);;All Files (*)"));
+    if (m_testImagePath.isEmpty())
+        return false;
+
+    m_testImageInfo.path = m_testImagePath.toStdString();
+    m_testImageInfo.image = cv::imread(m_testImageInfo.path, cv::IMREAD_COLOR);
+     m_testImageInfo.spot1Found = false;
+    m_testImageInfo.spot2Found = false;
+    m_testImageInfo.spot1Pos = cv::Point2f();
+    m_testImageInfo.spot2Pos = cv::Point2f();
+    m_testImageInfo.distancePx.reset();
+    return true;
+}
+
+bool HeightCore::computeTestImageInfo()
+{
+    cv::Mat img = m_testImageInfo.image;
+    if (img.empty()) {
+        return false; // 无法加载图像，跳过
     }
 
-    const ImageInfo& imageInfo = m_images[index];
-    if (!imageInfo.spot1Found || !imageInfo.spot2Found || !imageInfo.distancePx.has_value()) {
-        return std::nullopt; // 光斑未识别或距离不可用
+    m_lastDetectedCenters.clear(); // 清空上一轮检测到的圆心
+    bool hasDetection = false;     // 记录是否至少检测到一个圆
+    
+    m_testImageInfo.spot1Found = false;
+    m_testImageInfo.spot2Found = false;
+    m_testImageInfo.spot1Pos = cv::Point2f();
+    m_testImageInfo.spot2Pos = cv::Point2f();
+    m_testImageInfo.distancePx.reset();
+    std::vector<std::pair<cv::Point2f, float>> detectedSpots;
+    cv::Mat debugView;
+    if (!processImage(img, detectedSpots, &debugView)) {
+        return false;
     }
+    std::vector<cv::Point2f> centersForImage;
+    centersForImage.reserve(std::min<size_t>(2, detectedSpots.size()));
+    for (size_t i = 0; i < detectedSpots.size() && i < 2; ++i) {
+            centersForImage.push_back(detectedSpots[i].first);
+            const float radius = detectedSpots[i].second;
+            cv::circle(debugView, centersForImage.back(), static_cast<int>(radius), cv::Scalar(0, 255, 0), 2);
+            cv::circle(debugView, centersForImage.back(), 3, cv::Scalar(0, 0, 255), cv::FILLED);
+        }
 
-    // 优先使用线性标定
-    if (m_hasLinearCalib) {
-        double heightMm = m_calibA * imageInfo.distancePx.value() + m_calibB;
-        return heightMm;
+    if (!centersForImage.empty()) 
+        {
+            hasDetection = true;
+            // 累积保存圆心结果，供外部查询或后续处理
+            m_lastDetectedCenters.insert(m_lastDetectedCenters.end(),
+                                         centersForImage.begin(), centersForImage.end());
+
+            // 将结果写回 ImageInfo：第一、第二个光斑
+            if (!centersForImage.empty()) 
+            {
+                m_testImageInfo.spot1Found = true;
+                m_testImageInfo.spot1Pos = centersForImage[0];
+            }
+            if (centersForImage.size() > 1) 
+            {
+                m_testImageInfo.spot2Found = true;
+                m_testImageInfo.spot2Pos = centersForImage[1];
+                m_testImageInfo.distancePx = computeDistancePx(centersForImage[0], centersForImage[1]);
+            } else 
+            {
+                m_testImageInfo.spot2Found = false;
+                m_testImageInfo.distancePx.reset();
+                m_testImageInfo.spot2Pos = cv::Point2f();
+            }
+
+            // 展示处理效果图（包含拟合圆），快速确认检测质量
+            if (!debugView.empty()) 
+            {
+                cv::Mat display = debugView.clone();
+                pyrDown(display, display);
+                pyrDown(display, display);
+                cv::imshow("Detected Spots", display);
+                cv::waitKey(0);
+            } else 
+            {
+                return false;
+            }
+            return true;
+        }
+    return false;
+}
+
+std::optional<double> HeightCore::measureHeightForImage() const
+{
+    if(m_testImageInfo.spot1Found && m_testImageInfo.spot2Found)
+    {
+        double distancePx = computeDistancePx(m_testImageInfo.spot1Pos, m_testImageInfo.spot2Pos);
+        if (!m_hasLinearCalib) {
+            QMessageBox::warning(nullptr, "警告", "未设置线性标定参数");
+            return std::nullopt;
+
+        }
+        // 使用线性标定计算高度
+            double heightMm = m_calibA * distancePx + m_calibB;
+            return heightMm;
     }
-
-    // 否则尝试使用像素->毫米比例转换
-    if (m_pxToMm > 0.0) {
-        double distanceMm = imageInfo.distancePx.value() * m_pxToMm;
-        return distanceMm; // 作为高度返回
-    }
-
-    return std::nullopt; // 无法计算高度
+    return std::nullopt;
 }
 
 void HeightCore::sortImagesByName()
@@ -442,6 +435,124 @@ void HeightCore::rankImagesByDistancePx()
               {
                   return lhs.distancePx.value() < rhs.distancePx.value();
               });
+}
+
+bool HeightCore::processImage(const cv::Mat& input,
+                              std::vector<std::pair<cv::Point2f, float>>& detectedSpots,
+                              cv::Mat* debugOutput) const
+{
+    if (input.empty()) {
+        return false;
+    }
+
+    cv::Rect bounds(0, 0, input.cols, input.rows);
+    cv::Rect roi = (m_roi.width > 0 && m_roi.height > 0) ? (m_roi & bounds) : bounds;
+    if (roi.width <= 0 || roi.height <= 0) {
+        return false;
+    }
+
+    cv::Mat working = input(roi).clone();
+    cv::Point2f offset(static_cast<float>(roi.x), static_cast<float>(roi.y));
+
+    cv::Mat gray;
+    cv::cvtColor(working, gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
+
+    cv::Mat thresh;
+    cv::threshold(gray, thresh, 100, 255, cv::THRESH_BINARY);
+
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+    cv::Mat closed;
+    cv::morphologyEx(thresh, closed, cv::MORPH_CLOSE, element);
+    cv::Mat tempimg = closed.clone();
+    cv::pyrDown(tempimg, tempimg);
+    cv::pyrDown(tempimg, tempimg);
+    imshow("tempimg", tempimg);
+    cv::waitKey(0);
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(closed, contours, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+    drawContours(working, contours, -1, cv::Scalar(0, 255, 0), 2);
+    cv::Mat debugContours = working.clone();
+    pyrDown(debugContours, debugContours);
+    pyrDown(debugContours, debugContours);
+    imshow("Contours", debugContours);
+    cv::waitKey(0);
+
+    detectedSpots.clear();
+    detectedSpots.reserve(contours.size());
+
+    for (const auto& contour : contours) {
+        double area = cv::contourArea(contour);
+        if (area < 50.0 || area > 5000.0) {
+            continue;
+        }
+
+        double perimeter = cv::arcLength(contour, true);
+        if (perimeter <= 0.0) {
+            continue;
+        }
+
+        double circularity = 4.0 * CV_PI * area / (perimeter * perimeter);
+        if (circularity < 0.7) {
+            continue;
+        }
+
+        cv::Point2f rawCenter;
+        float radius = 0.0f;
+        cv::minEnclosingCircle(contour, rawCenter, radius);
+
+        std::vector<cv::Point2f> refined;
+        refined.reserve(contour.size());
+        for (const cv::Point& pt : contour) {
+            refined.emplace_back(static_cast<float>(pt.x), static_cast<float>(pt.y));
+        }
+
+        if (!refined.empty()) {
+            cv::cornerSubPix(gray,
+                             refined,
+                             cv::Size(5, 5),
+                             cv::Size(-1, -1),
+                             cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
+                                              45,
+                                              0.01));
+        }
+
+        cv::Point2f refinedCenter = rawCenter;
+        if (!refined.empty()) {
+            double sx = 0.0;
+            double sy = 0.0;
+            for (const auto& pt : refined) {
+                sx += pt.x;
+                sy += pt.y;
+            }
+            const double inv = 1.0 / static_cast<double>(refined.size());
+            refinedCenter.x = static_cast<float>(sx * inv);
+            refinedCenter.y = static_cast<float>(sy * inv);
+        }
+
+        refinedCenter += offset;
+        detectedSpots.emplace_back(refinedCenter, radius);
+    }
+
+    if (detectedSpots.empty()) {
+        if (debugOutput) {
+            *debugOutput = input.clone();
+        }
+        return false;
+    }
+
+    std::sort(detectedSpots.begin(), detectedSpots.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+    if (debugOutput) {
+        *debugOutput = input.clone();
+        if (roi != bounds) {
+            cv::rectangle(*debugOutput, roi, cv::Scalar(0, 128, 255), 1);
+        }
+    }
+
+    return true;
 }
 
 } // namespace Height::core

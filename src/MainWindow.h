@@ -30,4 +30,6 @@ private:
 
     double calibA;
     double calibB;
+
+    double m_TestHeight = -1.0;
 };
