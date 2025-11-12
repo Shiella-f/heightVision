@@ -110,3 +110,9 @@ build/translations/qt_tr.qm
 build/translations/qt_uk.qm
 build/translations/qt_zh_CN.qm
 build/translations/qt_zh_TW.qm
+build/.cmake/api/v1/reply/cmakeFiles-v1-19612315d7a28430360d.json
+build/.cmake/api/v1/reply/codemodel-v2-e47f416c3467d3ccd680.json
+build/.cmake/api/v1/reply/index-2025-11-12T01-50-12-0052.json
+build/.cmake/api/v1/reply/target-MainWindow-Debug-6950dbefeb57031e579a.json
+build/CMakeFiles/MainWindow.dir/src/tools/bscvTool.cpp.obj
+build/CMakeFiles/MainWindow.dir/src/tools/ImagePreprocess.cpp.obj
