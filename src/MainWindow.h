@@ -2,8 +2,11 @@
 #include <QMainWindow>
 #include <memory>
 #include <optional>
-#include "widget/heightMeature/Widget/testHWidget.h"
-#include "widget/heightMeature/core/testHeight.h"
+#include <opencv2/opencv.hpp>
+#include "heightMeature/Widget/testHWidget.h"
+#include "heightMeature/core/testHeight.h"
+#include "tools/bscvTool.h"
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -20,6 +23,8 @@ private:
     void StartTest();
     void SelectImage();
     void SetPreference();
+private slots:
+    void GetROI(const QRectF& roi);
 
 private:
     TestHeightWidget* m_testHeightWidget;
@@ -30,6 +35,9 @@ private:
 
     double calibA;
     double calibB;
+    cv::Mat m_showImage = cv::Mat();
 
     double m_TestHeight = -1.0;
+
+    cv::Rect2f m_cvRoi;
 };

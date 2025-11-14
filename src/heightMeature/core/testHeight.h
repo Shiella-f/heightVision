@@ -78,10 +78,14 @@ public:
     //执行测高，并返回测量值（mm），若该图片未识别光斑或无法计算则返回 empty
     std::optional<double> measureHeightForImage() const;
 
+    bool setShowImage(cv::Mat& img);
+    cv::Mat getShowImage() const{return m_showImage;}
+
+
     //ROI
     // 设置光斑识别区域（以图像坐标系的矩形表示），后续识别会在该 ROI 内进行
-    void setROI(const cv::Rect& roi);
-    cv::Rect getROI() const;
+    void setROI(const cv::Rect2f& roi);
+    cv::Rect2f getROI() const;
 
     //比例尺设置（预留）
     void setPixelToMm(double pxToMm);
@@ -89,8 +93,9 @@ public:
 
 private:
     std::vector<ImageInfo> m_images;
+    cv::Mat m_showImage;    // 用于显示的图像
     ImageInfo m_testImageInfo; // 测量图像信息
-    cv::Rect m_roi{0,0,0,0};
+    cv::Rect m_roi = cv::Rect(); // 光斑识别区域
     double m_stepMm = 2.0;         // 默认采样间隔（mm）
     
 
@@ -114,6 +119,15 @@ private:
     bool processImage(const cv::Mat& input,
                       std::vector<std::pair<cv::Point2f, float>>& detectedSpots,
                       cv::Mat* debugOutput = nullptr) const;
+    // 从候选圆中挑选面积差异可接受的圆心集合，并可选绘制调试图
+    bool selectBalancedPair(const std::vector<std::pair<cv::Point2f, float>>& spots,
+                            double maxAreaRatio,
+                            std::vector<cv::Point2f>& outCenters,
+                            cv::Mat* debugOutput = nullptr) const;
+
+    int threshold = 100;
+    bool resultIsDisplay = false;
+    bool processedIsDisplay = false;
 };
 
 } // namespace Height::core

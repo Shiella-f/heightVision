@@ -10,6 +10,8 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSceneWheelEvent>
 #include <QGraphicsTextItem>
+#include <QGraphicsRectItem>
+#include <QPen>
 #include <QGraphicsView>
 #include <QLineF>
 #include <QMenu>
@@ -98,6 +100,12 @@ void ZoomScene::setOriginalPixmap(const QPixmap &pixmap)
     m_sourceImageSize = pixmap.size();
     updateDragMode();
     resetImage();
+
+    if (m_isCollectRoi && !m_roiArea.isNull()) { // 如果已有有效 ROI，则在重新加载时恢复显示
+        QRectF sceneRect(mapImageToScene(m_roiArea.topLeft()), // 将 ROI 左上角从图像坐标映射到场景坐标
+                         mapImageToScene(m_roiArea.bottomRight())); // 将 ROI 右下角从图像坐标映射到场景坐标
+        updateRoiItem(sceneRect.normalized(), true); // 更新 ROI 可视化矩形并设为可见
+    }
 }
 
 void ZoomScene::showPlaceholder(const QString &text)
@@ -137,8 +145,9 @@ void ZoomScene::showPlaceholder(const QString &text)
 
 void ZoomScene::clearImage()
 {
-    m_hasImage = false;
-    m_scale = 1.0;
+    m_hasImage = false; // 标记当前无图像
+    m_scale = 1.0; // 重置缩放倍数
+    m_roiSelectionEnabled = false; // 关闭 ROI 选取模式
     if (m_pixmapItem) {
         m_pixmapItem->setVisible(false);
         m_pixmapItem->setPixmap(QPixmap());
@@ -147,7 +156,8 @@ void ZoomScene::clearImage()
         m_view->setTransform(QTransform());
         m_view->centerOn(0.0, 0.0);
     }
-    m_sourceImageSize = QSizeF();
+    m_sourceImageSize = QSizeF(); // 清空原始图像尺寸
+    clearRoi(); // 清除已有的 ROI 状态
     updateDragMode();
 }
 
@@ -224,9 +234,7 @@ void ZoomScene::updateDragMode() const
     if (!m_view) {
         return;
     }
-
-    const bool enableDrag = hasImage();
-    // enableDrag 为真表示场景中存在可显示的图片，此时允许通过鼠标拖拽移动视图。
+    const bool enableDrag = hasImage() && !m_roiSelectionEnabled; // 仅在存在图像且未进入 ROI 模式时允许拖拽
     // ScrollHandDrag 模式会在按住鼠标左键移动时平移视图，看起来就像拖动图片本身。
     m_view->setDragMode(enableDrag ? QGraphicsView::ScrollHandDrag : QGraphicsView::NoDrag);
     // 同步滚动条的可见性与鼠标光标，给用户明确的拖拽/静止状态反馈。
@@ -251,127 +259,63 @@ void ZoomScene::applyScale(double factor)
     m_scale = newScale;
 }
 
-
 void ZoomScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
-    if (!m_isCollectPoint) {
-        QGraphicsScene::mousePressEvent(event);
-        return;
+    if (m_roiSelectionEnabled && hasImage() && event->button() == Qt::LeftButton) { // 在 ROI 模式下按下左键开始框选
+        ensureRoiItem(); // 确保 ROI 可视化矩形已创建
+        m_roiDragging = true; // 标记进入拖拽状态
+        m_roiStartScene = event->scenePos(); // 记录拖拽起点（场景坐标）
+        updateRoiItem(QRectF(m_roiStartScene, QSizeF()), true); // 初始化显示一个零尺寸的 ROI 框
+        event->accept(); // 拦截事件避免继续传递
+        return; // 直接返回，不再执行默认逻辑
     }
 
-    if (event->button() == Qt::RightButton) {
-        // 右键视为用户主动取消点选，清理状态并通知回调。
-        const PointCallback callback = m_pointCallback;
-        cancelPointCollect();
-        if (callback) {
-            callback(QVector<QPointF>());
-        }
-        event->accept();
-        return;
-    }
-
-    if (event->button() != Qt::LeftButton) {
-        QGraphicsScene::mousePressEvent(event);
-        return;
-    }
-
-    if (!hasImage()) {
-        event->ignore();
-        return;
-    }
-
-    const QPointF scenePos = event->scenePos();
-    if (m_pixmapItem) {
-        const QPointF localPos = m_pixmapItem->mapFromScene(scenePos);
-        if (!m_pixmapItem->contains(localPos)) {
-            // 如果点击落在图像之外，直接忽略，避免记录无效坐标。
-            event->accept();
-            return;
-        }
-    }
-
-    const QPointF imagePos = mapSceneToImage(scenePos);
-    if (m_sourceImageSize.isValid()) {
-        if (imagePos.x() < 0.0 || imagePos.y() < 0.0 || imagePos.x() >= m_sourceImageSize.width() || imagePos.y() >= m_sourceImageSize.height()) {
-            event->accept();
-            return;
-        }
-    }
-
-    // 检查新点与已选点的间距，避免用户误触同一位置。
-    const bool tooClose = std::any_of(m_prePoints.cbegin(), m_prePoints.cend(),
-                                      [this, &imagePos](const QPointF &p) {
-                                          return QLineF(p, imagePos).length() < m_pointMinDistance;
-                                      });
-    if (tooClose) {
-        event->accept();
-        return;
-    }
-
-    m_prePoints.append(imagePos);
-
-    // 检查是否已收集到足够的点，若是则结束点选流程并调用回调。
-    if (m_prePoints.size() >= m_pointCount) {
-        m_resultPoints = m_prePoints;
-        const PointCallback callback = m_pointCallback;
-        m_pointCallback = nullptr;
-        m_isCollectPoint = false;
-        updateDragMode();
-        if (callback) {
-            callback(m_resultPoints);
-        }
-        event->accept();
-        return;
-    }
-
-    event->accept();
+    QGraphicsScene::mousePressEvent(event);
 }
 
-void ZoomScene::waitForPoints(int p_PointCount, PointCallback callback)
+void ZoomScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 {
-    if (!hasImage()) {
-        if (callback) {
-            callback(QVector<QPointF>());
-        }
-        return;
+    if (m_roiDragging && m_roiSelectionEnabled) { // 拖拽过程中实时更新 ROI 框
+        QRectF sceneRect(m_roiStartScene, event->scenePos()); // 构造当前拖拽矩形
+        updateRoiItem(sceneRect.normalized(), true); // 规范化矩形并刷新显示
+        event->accept(); // 吃掉事件以避免默认行为
+        return; // 不继续向下传递
     }
 
-    if (p_PointCount <= 0) {
-        if (callback) {
-            callback(QVector<QPointF>());
-        }
-        return;
-    }
-
-    // 启动新的点收集流程前，先清理旧状态，确保不会残留历史数据。
-    cancelPointCollect();
-
-    m_isCollectPoint = true;
-    m_pointCount = p_PointCount;
-    m_pointCallback = std::move(callback);
-    m_prePoints.clear();
-    m_resultPoints.clear();
-
-    if (m_view) {
-        // 点选阶段禁用拖拽，改用十字光标提示当前处于取点模式。
-        m_view->setDragMode(QGraphicsView::NoDrag);
-        m_view->setCursor(Qt::CrossCursor);
-    }
-
-    update();
+    QGraphicsScene::mouseMoveEvent(event);
 }
 
-void ZoomScene::cancelPointCollect()
+void ZoomScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 {
-    m_isCollectPoint = false;
-    m_pointCount = 0;
-    m_prePoints.clear();
-    m_resultPoints.clear();
-    m_pointCallback = nullptr;
-    if (m_view) {
-        updateDragMode();
+    if (m_roiDragging && m_roiSelectionEnabled && event->button() == Qt::LeftButton) { // 松开左键时结束 ROI 拾取
+        m_roiDragging = false; // 结束拖拽状态
+        m_roiSelectionEnabled = false; // 退出 ROI 选取模式
+        QRectF sceneRect(m_roiStartScene, event->scenePos()); // 根据起止点得到场景矩形
+        sceneRect = sceneRect.normalized(); // 规范化矩形确保左上右下顺序
+        if (sceneRect.width() > 1.0 && sceneRect.height() > 1.0) { // 过滤过小的框选
+            QPointF imageTopLeft = mapSceneToImage(sceneRect.topLeft()); // 转换左上角到图像坐标
+            QPointF imageBottomRight = mapSceneToImage(sceneRect.bottomRight()); // 转换右下角到图像坐标
+            QRectF imageRect(imageTopLeft, imageBottomRight); // 构造图像坐标系矩形
+            imageRect = clampToImage(imageRect.normalized()); // 限制 ROI 在图像范围内
+            m_roiArea = imageRect; // 保存最终 ROI
+            m_isCollectRoi = imageRect.width() > 0.0 && imageRect.height() > 0.0; // 标记是否选取成功
+            if (m_isCollectRoi) { // 若选取有效则刷新显示
+                QRectF displayRect(mapImageToScene(m_roiArea.topLeft()), // 将 ROI 左上角映射回场景
+                                   mapImageToScene(m_roiArea.bottomRight())); // 将 ROI 右下角映射回场景
+                updateRoiItem(displayRect.normalized(), true); // 用图像范围限制后的矩形更新显示
+            } else {
+                updateRoiItem(QRectF(), false); // 无效时隐藏 ROI
+            }
+        } else {
+            m_isCollectRoi = false; // 框选太小视为无效
+            m_roiArea = QRectF(); // 清空 ROI
+            updateRoiItem(QRectF(), false); // 隐藏显示矩形
+        }
+        event->accept(); // 吃掉释放事件
+        return; // 结束处理
     }
-    update();
+
+    QGraphicsScene::mouseReleaseEvent(event);
 }
 
 void ZoomScene::setSourceImageSize(const QSize &size)
@@ -400,3 +344,111 @@ QPointF ZoomScene::mapSceneToImage(const QPointF &scenePoint) const
     return QPointF(localPoint.x() * scaleX, localPoint.y() * scaleY);
 }
 
+void ZoomScene::setRoiArea(const QRectF &roi)
+{
+    QRectF clamped = clampToImage(roi); // 将传入的 ROI 限制到图像范围内
+    m_roiArea = clamped; // 保存最终的 ROI 转换结果
+    m_isCollectRoi = clamped.width() > 0.0 && clamped.height() > 0.0; // 判断 ROI 是否有效
+    if (hasImage() && m_isCollectRoi) { // 若当前存在图像且 ROI 合法
+        QRectF sceneRect(mapImageToScene(clamped.topLeft()), // 将左上角映射到场景坐标
+                         mapImageToScene(clamped.bottomRight())); // 将右下角映射到场景坐标
+        updateRoiItem(sceneRect.normalized(), true); // 显示 ROI 矩形
+    } else {
+        updateRoiItem(QRectF(), false); // 否则隐藏 ROI
+    }
+}
+
+bool ZoomScene::getRoiArea(QRectF &roi) const
+{
+    if (!m_isCollectRoi) {
+        return false;
+    }
+    roi = m_roiArea;
+    return true;
+}
+
+void ZoomScene::enableRoiSelection(bool enable)
+{
+    if (!hasImage()) {
+        enable = false; // 若没有图像则强制关闭 ROI 模式
+    }
+    m_roiSelectionEnabled = enable; // 记录当前 ROI 模式状态
+    m_roiDragging = false; // 重置拖拽标记
+    if (m_isCollectRoi && hasImage()) { // 若已有 ROI 且图像存在
+        QRectF sceneRect(mapImageToScene(m_roiArea.topLeft()), // 将 ROI 左上角映射至场景
+                         mapImageToScene(m_roiArea.bottomRight())); // 将 ROI 右下角映射至场景
+        updateRoiItem(sceneRect.normalized(), true); // 继续显示 ROI
+    } else if (!m_isCollectRoi) {
+        updateRoiItem(QRectF(), false); // 无 ROI 时隐藏矩形
+    }
+    updateDragMode(); // 切换拖拽模式以防冲突
+}
+
+void ZoomScene::setRoiSelectionEnabled(bool enabled)
+{
+    enableRoiSelection(enabled); // 复用内部逻辑保持行为一致
+}
+
+bool ZoomScene::isRoiSelectionEnabled() const
+{
+    return m_roiSelectionEnabled;
+}
+
+void ZoomScene::clearRoi()
+{
+    m_isCollectRoi = false; // 清除 ROI 有效标记
+    m_roiArea = QRectF(); // 重置 ROI 数据
+    m_roiDragging = false; // 退出拖拽状态
+    if (m_roiRectItem) {
+        m_roiRectItem->setVisible(false); // 隐藏 ROI 显示矩形
+    }
+}
+
+QPointF ZoomScene::mapImageToScene(const QPointF &imagePoint) const
+{
+    if (!m_pixmapItem) {
+        return imagePoint; // 若无图像项则直接返回原坐标
+    }
+
+    const QSizeF pixSize = m_pixmapItem->pixmap().size(); // 获取当前显示图元的像素尺寸
+    if (pixSize.isEmpty() || !m_sourceImageSize.isValid()) {
+        return m_pixmapItem->mapToScene(imagePoint); // 若无法计算缩放则直接映射
+    }
+
+    const double scaleX = pixSize.width() / m_sourceImageSize.width(); // 计算 X 轴缩放比例
+    const double scaleY = pixSize.height() / m_sourceImageSize.height(); // 计算 Y 轴缩放比例
+    QPointF local(imagePoint.x() * scaleX, imagePoint.y() * scaleY); // 将图像坐标缩放到图元坐标
+    return m_pixmapItem->mapToScene(local); // 转为场景坐标
+}
+
+void ZoomScene::ensureRoiItem()
+{
+    if (!m_roiRectItem) { // 若尚未创建 ROI 图形项
+        QPen pen(QColor(255, 165, 0)); // 构造橙色描边
+        pen.setWidthF(1.2); // 设置线宽
+        pen.setStyle(Qt::DashLine); // 使用虚线样式
+        m_roiRectItem = addRect(QRectF(), pen, QColor(255, 165, 0, 40)); // 创建带半透明填充的矩形
+        m_roiRectItem->setZValue(3.0); // 提升层级避免被遮挡
+        m_roiRectItem->setFlag(QGraphicsItem::ItemIsSelectable, false); // 禁止用户单独选中
+        m_roiRectItem->setFlag(QGraphicsItem::ItemIsMovable, false); // 禁止直接拖动矩形
+    }
+}
+
+void ZoomScene::updateRoiItem(const QRectF &sceneRect, bool visible)
+{
+    ensureRoiItem(); // 确保矩形已创建
+    m_roiRectItem->setRect(sceneRect); // 更新矩形范围
+    m_roiRectItem->setVisible(visible && !sceneRect.isNull() && sceneRect.width() > 0.0 && sceneRect.height() > 0.0); // 根据条件控制显示
+}
+
+QRectF ZoomScene::clampToImage(const QRectF &imageRect) const
+{
+    QRectF normalized = imageRect.normalized(); // 规范化矩形方向
+    if (!m_sourceImageSize.isValid() || normalized.isNull()) {
+        return normalized; // 若图像尺寸无效则直接返回
+    }
+
+    QRectF bounds(QPointF(0.0, 0.0), m_sourceImageSize); // 以原图大小构造边界
+    QRectF clamped = normalized.intersected(bounds); // 与边界求交确保 ROI 在图像内
+    return clamped; // 返回限制后的矩形
+}
