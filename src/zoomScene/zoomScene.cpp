@@ -1,232 +1,20 @@
 #include "zoomScene.h"
 
-#include <QAction>
-#include <QFrame>
 #include <QColor>
-#include <QFont>
-#include <QFontMetricsF>
-#include <QGraphicsPixmapItem>
-#include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneMouseEvent>
-#include <QGraphicsSceneWheelEvent>
-#include <QGraphicsTextItem>
 #include <QGraphicsRectItem>
 #include <QPen>
 #include <QGraphicsView>
+#include <QEvent>
 #include <QLineF>
-#include <QMenu>
-#include <QPainter>
-#include <QTransform>
-#include <QtMath>
-#include <QtGlobal>
+#include <array>
 #include <algorithm>
-#include <utility>
+#include <cmath>
 
-
-namespace {
-QRectF centeredRect(const QSizeF &size)
-{
-    const QPointF topLeft(-size.width() / 2.0, -size.height() / 2.0);
-    return QRectF(topLeft, size);
-}
-}
 
 ZoomScene::ZoomScene(QObject *parent)
-    : QGraphicsScene(parent),
-      m_view(nullptr),
-      m_pixmapItem(nullptr),
-      m_placeholderItem(nullptr),
-      m_resetAction(new QAction(tr("恢复原图"), this)),
-      m_scale(1.0),
-      m_minScale(0.1),
-      m_maxScale(5.0),
-      m_hasImage(false),
-      m_sourceImageSize()
+    : ImageSceneBase(parent)
 {
-    connect(m_resetAction, &QAction::triggered, this, &ZoomScene::resetImage);
-}
-
-void ZoomScene::attachView(QGraphicsView *view)
-{
-    if (m_view == view) {
-        return;
-    }
-
-    if (m_view) {
-        m_view->setScene(nullptr);
-    }
-
-    m_view = view;
-    if (m_view) {
-        m_view->setScene(this);
-    m_view->setRenderHint(QPainter::Antialiasing, true);
-    m_view->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    m_view->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
-    m_view->setResizeAnchor(QGraphicsView::AnchorViewCenter);
-    m_view->setInteractive(true);
-    m_view->setContextMenuPolicy(Qt::DefaultContextMenu);
-    m_view->setFrameShape(QFrame::NoFrame);
-    m_view->setAlignment(Qt::AlignCenter);
-    m_view->setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
-        updateDragMode();
-
-        connect(m_view, &QObject::destroyed, this, [this]() { m_view = nullptr; });
-    }
-
-    resetImage();
-}
-
-void ZoomScene::setOriginalPixmap(const QPixmap &pixmap)
-{
-    if (pixmap.isNull()) {
-        clearImage();
-        return;
-    }
-
-    if (!m_pixmapItem) {
-        m_pixmapItem = addPixmap(pixmap);
-        m_pixmapItem->setTransformationMode(Qt::SmoothTransformation);
-    } else {
-        m_pixmapItem->setPixmap(pixmap);
-        m_pixmapItem->setVisible(true);
-    }
-
-    if (m_placeholderItem) {
-        m_placeholderItem->setVisible(false);
-    }
-
-    m_hasImage = true;
-    setSceneRect(m_pixmapItem->boundingRect());
-    m_sourceImageSize = pixmap.size();
-    updateDragMode();
-    resetImage();
-
-    if (m_isCollectRoi && !m_roiArea.isNull()) { // 如果已有有效 ROI，则在重新加载时恢复显示
-        QRectF sceneRect(mapImageToScene(m_roiArea.topLeft()), // 将 ROI 左上角从图像坐标映射到场景坐标
-                         mapImageToScene(m_roiArea.bottomRight())); // 将 ROI 右下角从图像坐标映射到场景坐标
-        updateRoiItem(sceneRect.normalized(), true); // 更新 ROI 可视化矩形并设为可见
-    }
-}
-
-void ZoomScene::showPlaceholder(const QString &text)
-{
-    ensurePlaceholderItem();
-
-    QFont font = m_placeholderItem->font();
-    font.setPointSize(std::max(10, font.pointSize()));
-    m_placeholderItem->setFont(font);
-    m_placeholderItem->setDefaultTextColor(QColor(160, 160, 160));
-    m_placeholderItem->setPlainText(text);
-
-    const QFontMetricsF metrics(font);
-    QSizeF textSize = metrics.size(Qt::TextSingleLine, text);
-    if (textSize.isEmpty()) {
-        textSize = QSizeF(60.0, 20.0);
-    }
-
-    const QRectF rect = centeredRect(textSize + QSizeF(20.0, 12.0));
-    setSceneRect(rect);
-    m_placeholderItem->setPos(rect.topLeft() + QPointF((rect.width() - textSize.width()) / 2.0,
-                                                       (rect.height() - textSize.height()) / 2.0));
-
-    m_hasImage = false;
-    if (m_pixmapItem) {
-        m_pixmapItem->setVisible(false);
-    }
-    m_sourceImageSize = QSizeF();
-
-    if (m_view) {
-        m_view->setTransform(QTransform());
-        m_view->centerOn(m_placeholderItem);
-    }
-
-    updateDragMode();
-}
-
-void ZoomScene::clearImage()
-{
-    m_hasImage = false; // 标记当前无图像
-    m_scale = 1.0; // 重置缩放倍数
-    m_roiSelectionEnabled = false; // 关闭 ROI 选取模式
-    if (m_pixmapItem) {
-        m_pixmapItem->setVisible(false);
-        m_pixmapItem->setPixmap(QPixmap());
-    }
-    if (m_view) {
-        m_view->setTransform(QTransform());
-        m_view->centerOn(0.0, 0.0);
-    }
-    m_sourceImageSize = QSizeF(); // 清空原始图像尺寸
-    clearRoi(); // 清除已有的 ROI 状态
-    updateDragMode();
-}
-
-void ZoomScene::resetImage()
-{
-    if (!m_view || !m_pixmapItem || !m_hasImage) {
-        return;
-    }
-
-    m_scale = 1.0;
-    m_view->setTransform(QTransform());
-    m_view->centerOn(m_pixmapItem);
-}
-
-QSize ZoomScene::availableSize() const
-{
-    if (m_view) {
-        const QSize size = m_view->viewport()->size();
-        if (size.width() > 0 && size.height() > 0) {
-            return size;
-        }
-    }
-    return QSize(320, 240);
-}
-
-bool ZoomScene::hasImage() const
-{
-    return m_hasImage && m_pixmapItem && !m_pixmapItem->pixmap().isNull();
-}
-
-void ZoomScene::wheelEvent(QGraphicsSceneWheelEvent *event)
-{
-    if (!m_view || !hasImage()) {
-        event->ignore();
-        return;
-    }
-
-    const int delta = event->delta();
-    if (delta == 0) {
-        event->accept();
-        return;
-    }
-
-    const double factor = delta > 0 ? 1.1 : 0.9;
-    applyScale(factor);
-    event->accept();
-}
-
-void ZoomScene::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
-{
-    if (!hasImage()) {
-        event->ignore();
-        return;
-    }
-
-    QMenu menu;
-    menu.addAction(m_resetAction);
-    menu.exec(event->screenPos());
-    event->accept();
-}
-
-void ZoomScene::ensurePlaceholderItem()
-{
-    if (!m_placeholderItem) {
-        m_placeholderItem = addText(QString());
-        m_placeholderItem->setZValue(1.0);
-        m_placeholderItem->setFlag(QGraphicsItem::ItemIsSelectable, false);
-        m_placeholderItem->setFlag(QGraphicsItem::ItemIsMovable, false);
-    }
 }
 
 void ZoomScene::updateDragMode() const
@@ -234,38 +22,74 @@ void ZoomScene::updateDragMode() const
     if (!m_view) {
         return;
     }
-    const bool enableDrag = hasImage() && !m_roiSelectionEnabled; // 仅在存在图像且未进入 ROI 模式时允许拖拽
-    // ScrollHandDrag 模式会在按住鼠标左键移动时平移视图，看起来就像拖动图片本身。
-    m_view->setDragMode(enableDrag ? QGraphicsView::ScrollHandDrag : QGraphicsView::NoDrag);
-    // 同步滚动条的可见性与鼠标光标，给用户明确的拖拽/静止状态反馈。
+    const bool enableDrag = hasImage() && !m_roiSelectionEnabled && m_roiAdjustMode == RoiAdjustMode::None;
+    m_view->setDragMode(QGraphicsView::NoDrag);
     m_view->setHorizontalScrollBarPolicy(enableDrag ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
     m_view->setVerticalScrollBarPolicy(enableDrag ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
-    m_view->setCursor(enableDrag ? Qt::OpenHandCursor : Qt::ArrowCursor);
+    updateCursorState();
 }
 
-void ZoomScene::applyScale(double factor)
+void ZoomScene::updateCursorState() const
 {
-    if (!m_view || qFuzzyIsNull(factor - 1.0)) {
+    if (!m_view) {
         return;
     }
 
-    const double newScale = qBound(m_minScale, m_scale * factor, m_maxScale);
-    const double actualFactor = newScale / m_scale;
-    if (qFuzzyIsNull(actualFactor - 1.0)) {
+    if (m_roiSelectionEnabled && hasImage()) {
+        m_view->setCursor(Qt::CrossCursor);
         return;
     }
 
-    m_view->scale(actualFactor, actualFactor);
-    m_scale = newScale;
+    auto effectiveMode = m_roiAdjustMode != RoiAdjustMode::None ? m_roiAdjustMode : m_roiHoverMode;
+    switch (effectiveMode) {
+    case RoiAdjustMode::Move:
+        m_view->setCursor(Qt::SizeAllCursor);
+        return;
+    case RoiAdjustMode::Left:
+    case RoiAdjustMode::Right:
+        m_view->setCursor(Qt::SizeHorCursor);
+        return;
+    case RoiAdjustMode::Top:
+    case RoiAdjustMode::Bottom:
+        m_view->setCursor(Qt::SizeVerCursor);
+        return;
+    case RoiAdjustMode::TopLeft:
+    case RoiAdjustMode::BottomRight:
+        m_view->setCursor(Qt::SizeFDiagCursor);
+        return;
+    case RoiAdjustMode::TopRight:
+    case RoiAdjustMode::BottomLeft:
+        m_view->setCursor(Qt::SizeBDiagCursor);
+        return;
+    default:
+        break;
+    }
+
+    m_view->unsetCursor();
 }
 
 void ZoomScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
+    if (!m_roiSelectionEnabled && m_isCollectRoi && hasImage() && event->button() == Qt::LeftButton) {
+        QRectF sceneRect = currentSceneRoiRect();
+        const RoiAdjustMode hit = hitTestRoiHandle(event->scenePos(), sceneRect);
+        if (hit != RoiAdjustMode::None) {
+            m_roiAdjustMode = hit;
+            m_roiAdjustInitialSceneRect = sceneRect;
+            m_roiAdjustStartScenePos = event->scenePos();
+            updateDragMode();
+            event->accept();
+            return;
+        }
+    }
+
     if (m_roiSelectionEnabled && hasImage() && event->button() == Qt::LeftButton) { // 在 ROI 模式下按下左键开始框选
         ensureRoiItem(); // 确保 ROI 可视化矩形已创建
         m_roiDragging = true; // 标记进入拖拽状态
         m_roiStartScene = event->scenePos(); // 记录拖拽起点（场景坐标）
         updateRoiItem(QRectF(m_roiStartScene, QSizeF()), true); // 初始化显示一个零尺寸的 ROI 框
+        m_roiHoverMode = RoiAdjustMode::None;
+        updateCursorState();
         event->accept(); // 拦截事件避免继续传递
         return; // 直接返回，不再执行默认逻辑
     }
@@ -275,6 +99,14 @@ void ZoomScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
 
 void ZoomScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 {
+    updateRoiHoverState(event->scenePos());
+
+    if (m_roiAdjustMode != RoiAdjustMode::None) {
+        updateRoiAdjusting(event->scenePos());
+        event->accept();
+        return;
+    }
+
     if (m_roiDragging && m_roiSelectionEnabled) { // 拖拽过程中实时更新 ROI 框
         QRectF sceneRect(m_roiStartScene, event->scenePos()); // 构造当前拖拽矩形
         updateRoiItem(sceneRect.normalized(), true); // 规范化矩形并刷新显示
@@ -287,6 +119,17 @@ void ZoomScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 
 void ZoomScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 {
+    if (m_roiAdjustMode != RoiAdjustMode::None && event->button() == Qt::LeftButton) {
+        updateRoiAdjusting(event->scenePos());
+        m_roiAdjustMode = RoiAdjustMode::None;
+        updateDragMode();
+        QRectF newSceneRect = currentSceneRoiRect();
+        m_roiHoverMode = hitTestRoiHandle(event->scenePos(), newSceneRect);
+        updateCursorState();
+        event->accept();
+        return;
+    }
+
     if (m_roiDragging && m_roiSelectionEnabled && event->button() == Qt::LeftButton) { // 松开左键时结束 ROI 拾取
         m_roiDragging = false; // 结束拖拽状态
         m_roiSelectionEnabled = false; // 退出 ROI 选取模式
@@ -308,40 +151,18 @@ void ZoomScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
             }
         } else {
             m_isCollectRoi = false; // 框选太小视为无效
-            m_roiArea = QRectF(); // 清空 ROI
+            m_roiArea = QRectF(); 
             updateRoiItem(QRectF(), false); // 隐藏显示矩形
         }
-        event->accept(); // 吃掉释放事件
-        return; // 结束处理
+        updateDragMode();
+        QRectF newSceneRect = currentSceneRoiRect();
+        m_roiHoverMode = hitTestRoiHandle(event->scenePos(), newSceneRect);
+        updateCursorState();
+        event->accept(); 
+        return; 
     }
 
     QGraphicsScene::mouseReleaseEvent(event);
-}
-
-void ZoomScene::setSourceImageSize(const QSize &size)
-{
-    m_sourceImageSize = size;
-}
-
-QPointF ZoomScene::mapSceneToImage(const QPointF &scenePoint) const
-{
-    if (!m_pixmapItem) {
-        return scenePoint;
-    }
-
-    const QPointF localPoint = m_pixmapItem->mapFromScene(scenePoint);
-    const QSizeF pixSize = m_pixmapItem->pixmap().size();
-    if (pixSize.isEmpty()) {
-        return localPoint;
-    }
-
-    if (!m_sourceImageSize.isValid()) {
-        return localPoint;
-    }
-
-    const double scaleX = m_sourceImageSize.width() / pixSize.width();
-    const double scaleY = m_sourceImageSize.height() / pixSize.height();
-    return QPointF(localPoint.x() * scaleX, localPoint.y() * scaleY);
 }
 
 void ZoomScene::setRoiArea(const QRectF &roi)
@@ -389,36 +210,22 @@ void ZoomScene::setRoiSelectionEnabled(bool enabled)
     enableRoiSelection(enabled); // 复用内部逻辑保持行为一致
 }
 
-bool ZoomScene::isRoiSelectionEnabled() const
-{
-    return m_roiSelectionEnabled;
-}
-
 void ZoomScene::clearRoi()
 {
     m_isCollectRoi = false; // 清除 ROI 有效标记
     m_roiArea = QRectF(); // 重置 ROI 数据
     m_roiDragging = false; // 退出拖拽状态
+    m_roiAdjustMode = RoiAdjustMode::None; // 停止 ROI 调整
     if (m_roiRectItem) {
         m_roiRectItem->setVisible(false); // 隐藏 ROI 显示矩形
     }
-}
-
-QPointF ZoomScene::mapImageToScene(const QPointF &imagePoint) const
-{
-    if (!m_pixmapItem) {
-        return imagePoint; // 若无图像项则直接返回原坐标
+    for (auto *handle : m_roiHandleItems) {
+        if (handle) {
+            handle->setVisible(false);
+        }
     }
-
-    const QSizeF pixSize = m_pixmapItem->pixmap().size(); // 获取当前显示图元的像素尺寸
-    if (pixSize.isEmpty() || !m_sourceImageSize.isValid()) {
-        return m_pixmapItem->mapToScene(imagePoint); // 若无法计算缩放则直接映射
-    }
-
-    const double scaleX = pixSize.width() / m_sourceImageSize.width(); // 计算 X 轴缩放比例
-    const double scaleY = pixSize.height() / m_sourceImageSize.height(); // 计算 Y 轴缩放比例
-    QPointF local(imagePoint.x() * scaleX, imagePoint.y() * scaleY); // 将图像坐标缩放到图元坐标
-    return m_pixmapItem->mapToScene(local); // 转为场景坐标
+    m_roiHoverMode = RoiAdjustMode::None;
+    updateCursorState();
 }
 
 void ZoomScene::ensureRoiItem()
@@ -431,6 +238,24 @@ void ZoomScene::ensureRoiItem()
         m_roiRectItem->setZValue(3.0); // 提升层级避免被遮挡
         m_roiRectItem->setFlag(QGraphicsItem::ItemIsSelectable, false); // 禁止用户单独选中
         m_roiRectItem->setFlag(QGraphicsItem::ItemIsMovable, false); // 禁止直接拖动矩形
+        m_roiRectItem->setAcceptedMouseButtons(Qt::NoButton);
+        m_roiRectItem->setAcceptHoverEvents(false);
+    }
+
+    const QColor handleColor(255, 215, 0);
+    const QColor handleFill(255, 215, 0, 180);
+    for (auto &handle : m_roiHandleItems) {
+        if (!handle) {
+            QPen handlePen(handleColor);
+            handlePen.setWidthF(1.0);
+            handle = addRect(QRectF(), handlePen, handleFill);
+            handle->setZValue(3.5);
+            handle->setFlag(QGraphicsItem::ItemIsSelectable, false);
+            handle->setFlag(QGraphicsItem::ItemIsMovable, false);
+            handle->setAcceptedMouseButtons(Qt::NoButton);
+            handle->setAcceptHoverEvents(false);
+            handle->setVisible(false);
+        }
     }
 }
 
@@ -438,7 +263,36 @@ void ZoomScene::updateRoiItem(const QRectF &sceneRect, bool visible)
 {
     ensureRoiItem(); // 确保矩形已创建
     m_roiRectItem->setRect(sceneRect); // 更新矩形范围
-    m_roiRectItem->setVisible(visible && !sceneRect.isNull() && sceneRect.width() > 0.0 && sceneRect.height() > 0.0); // 根据条件控制显示
+    const bool show = visible && !sceneRect.isNull() && sceneRect.width() > 0.0 && sceneRect.height() > 0.0;
+    m_roiRectItem->setVisible(show); // 根据条件控制显示
+
+    const double handleSize = 10.0;
+    const double half = handleSize / 2.0;
+    const std::array<QPointF, 4> corners{
+        sceneRect.topLeft(),
+        sceneRect.topRight(),
+        sceneRect.bottomLeft(),
+        sceneRect.bottomRight()
+    };
+
+    for (size_t idx = 0; idx < m_roiHandleItems.size(); ++idx) {
+        auto *handle = m_roiHandleItems[idx];
+        if (!handle) {
+            continue;
+        }
+        if (!show) {
+            handle->setVisible(false);
+            continue;
+        }
+        const QPointF &corner = corners[idx];
+        handle->setRect(QRectF(corner.x() - half, corner.y() - half, handleSize, handleSize));
+        handle->setVisible(true);
+    }
+
+    if (!show) {
+        m_roiHoverMode = RoiAdjustMode::None;
+        updateCursorState();
+    }
 }
 
 QRectF ZoomScene::clampToImage(const QRectF &imageRect) const
@@ -451,4 +305,189 @@ QRectF ZoomScene::clampToImage(const QRectF &imageRect) const
     QRectF bounds(QPointF(0.0, 0.0), m_sourceImageSize); // 以原图大小构造边界
     QRectF clamped = normalized.intersected(bounds); // 与边界求交确保 ROI 在图像内
     return clamped; // 返回限制后的矩形
+}
+
+QRectF ZoomScene::currentSceneRoiRect() const
+{
+    if (!m_isCollectRoi || !hasImage()) {
+        return QRectF();
+    }
+
+    QPointF topLeft = mapImageToScene(m_roiArea.topLeft());
+    QPointF bottomRight = mapImageToScene(m_roiArea.bottomRight());
+    return QRectF(topLeft, bottomRight).normalized();
+}
+
+void ZoomScene::applySceneRoiRect(const QRectF &sceneRect)
+{
+    if (!hasImage() || sceneRect.isNull()) {
+        return;
+    }
+    QPointF imageTopLeft = mapSceneToImage(sceneRect.topLeft());
+    QPointF imageBottomRight = mapSceneToImage(sceneRect.bottomRight());
+    QRectF imageRect(imageTopLeft, imageBottomRight);
+    setRoiArea(imageRect);
+}
+
+ZoomScene::RoiAdjustMode ZoomScene::hitTestRoiHandle(const QPointF &scenePos, const QRectF &sceneRect) const
+{
+    if (sceneRect.isNull()) {
+        return RoiAdjustMode::None;
+    }
+
+    const double handleRadius = 8.0;
+    const double edgeTolerance = 5.0;
+    const double minInteriorPadding = handleRadius + 1.0;
+    const QPointF topLeft = sceneRect.topLeft();
+    const QPointF topRight = sceneRect.topRight();
+    const QPointF bottomLeft = sceneRect.bottomLeft();
+    const QPointF bottomRight = sceneRect.bottomRight();
+
+    const auto within = [&](const QPointF &corner) {
+        return QLineF(scenePos, corner).length() <= handleRadius;
+    };
+
+    if (within(topLeft)) {
+        return RoiAdjustMode::TopLeft;
+    }
+    if (within(topRight)) {
+        return RoiAdjustMode::TopRight;
+    }
+    if (within(bottomLeft)) {
+        return RoiAdjustMode::BottomLeft;
+    }
+    if (within(bottomRight)) {
+        return RoiAdjustMode::BottomRight;
+    }
+
+    const bool withinVertical = scenePos.y() >= topLeft.y() + minInteriorPadding && scenePos.y() <= bottomLeft.y() - minInteriorPadding;
+    if (withinVertical) {
+        if (std::abs(scenePos.x() - topLeft.x()) <= edgeTolerance) {
+            return RoiAdjustMode::Left;
+        }
+        if (std::abs(scenePos.x() - topRight.x()) <= edgeTolerance) {
+            return RoiAdjustMode::Right;
+        }
+    }
+
+    const bool withinHorizontal = scenePos.x() >= topLeft.x() + minInteriorPadding && scenePos.x() <= topRight.x() - minInteriorPadding;
+    if (withinHorizontal) {
+        if (std::abs(scenePos.y() - topLeft.y()) <= edgeTolerance) {
+            return RoiAdjustMode::Top;
+        }
+        if (std::abs(scenePos.y() - bottomLeft.y()) <= edgeTolerance) {
+            return RoiAdjustMode::Bottom;
+        }
+    }
+
+    QRectF interiorRect = sceneRect.adjusted(edgeTolerance, edgeTolerance, -edgeTolerance, -edgeTolerance);
+    if (!interiorRect.isNull() && interiorRect.contains(scenePos)) {
+        return RoiAdjustMode::Move;
+    }
+    return RoiAdjustMode::None;
+}
+
+void ZoomScene::updateRoiAdjusting(const QPointF &scenePos)
+{
+    if (m_roiAdjustMode == RoiAdjustMode::None) {
+        return;
+    }
+
+    QRectF rect = m_roiAdjustInitialSceneRect;
+    const QPointF delta = scenePos - m_roiAdjustStartScenePos;
+
+    switch (m_roiAdjustMode) {
+    case RoiAdjustMode::Move:
+        rect.translate(delta);
+        break;
+    case RoiAdjustMode::TopLeft:
+        rect.setTopLeft(m_roiAdjustInitialSceneRect.topLeft() + delta);
+        break;
+    case RoiAdjustMode::TopRight:
+        rect.setTopRight(m_roiAdjustInitialSceneRect.topRight() + delta);
+        break;
+    case RoiAdjustMode::BottomLeft:
+        rect.setBottomLeft(m_roiAdjustInitialSceneRect.bottomLeft() + delta);
+        break;
+    case RoiAdjustMode::BottomRight:
+        rect.setBottomRight(m_roiAdjustInitialSceneRect.bottomRight() + delta);
+        break;
+    case RoiAdjustMode::Left:
+        rect.setLeft(m_roiAdjustInitialSceneRect.left() + delta.x());
+        break;
+    case RoiAdjustMode::Right:
+        rect.setRight(m_roiAdjustInitialSceneRect.right() + delta.x());
+        break;
+    case RoiAdjustMode::Top:
+        rect.setTop(m_roiAdjustInitialSceneRect.top() + delta.y());
+        break;
+    case RoiAdjustMode::Bottom:
+        rect.setBottom(m_roiAdjustInitialSceneRect.bottom() + delta.y());
+        break;
+    case RoiAdjustMode::None:
+        break;
+    }
+
+    rect = rect.normalized();
+    if (rect.width() < 2.0 || rect.height() < 2.0) {
+        return;
+    }
+
+    applySceneRoiRect(rect);
+    m_roiAdjustInitialSceneRect = currentSceneRoiRect();
+    m_roiAdjustStartScenePos = scenePos;
+}
+
+void ZoomScene::updateRoiHoverState(const QPointF &scenePos)
+{
+    const bool roiSelectable = !m_roiSelectionEnabled && m_isCollectRoi && hasImage();
+    const bool allowHover = roiSelectable && m_roiAdjustMode == RoiAdjustMode::None && !m_roiDragging;
+
+    if (allowHover) {
+        QRectF sceneRect = currentSceneRoiRect();
+        RoiAdjustMode hover = hitTestRoiHandle(scenePos, sceneRect);
+        if (hover != m_roiHoverMode) {
+            m_roiHoverMode = hover;
+            updateCursorState();
+        }
+    } else if (m_roiHoverMode != RoiAdjustMode::None) {
+        m_roiHoverMode = RoiAdjustMode::None;
+        updateCursorState();
+    }
+}
+
+void ZoomScene::onViewAttached(QGraphicsView *newView)
+{
+    ImageSceneBase::onViewAttached(newView);
+    updateDragMode();
+}
+
+void ZoomScene::onImageCleared()
+{
+    m_roiSelectionEnabled = false;
+    clearRoi();
+    updateDragMode();
+}
+
+void ZoomScene::onImageUpdated()
+{
+    if (m_isCollectRoi && hasImage() && !m_roiArea.isNull()) {
+        QRectF sceneRect(mapImageToScene(m_roiArea.topLeft()),
+                         mapImageToScene(m_roiArea.bottomRight()));
+        updateRoiItem(sceneRect.normalized(), true);
+    }
+    updateDragMode();
+}
+
+bool ZoomScene::event(QEvent *event)
+{
+    if (event) {
+        const QEvent::Type type = event->type();
+        if ((type == QEvent::Leave || type == QEvent::GraphicsSceneLeave) && m_roiHoverMode != RoiAdjustMode::None) {
+            m_roiHoverMode = RoiAdjustMode::None;
+            updateCursorState();
+        }
+    }
+
+    return ImageSceneBase::event(event);
 }
