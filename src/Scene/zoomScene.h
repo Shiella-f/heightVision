@@ -1,5 +1,5 @@
 #pragma once
-#include "zoomScene/ImageSceneBase.h"
+#include "Scene/ImageSceneBase.h"
 
 #include <array>
 

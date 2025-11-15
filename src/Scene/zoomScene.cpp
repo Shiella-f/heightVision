@@ -464,6 +464,7 @@ void ZoomScene::onViewAttached(QGraphicsView *newView)
 
 void ZoomScene::onImageCleared()
 {
+    ImageSceneBase::onImageCleared();
     m_roiSelectionEnabled = false;
     clearRoi();
     updateDragMode();
@@ -471,6 +472,7 @@ void ZoomScene::onImageCleared()
 
 void ZoomScene::onImageUpdated()
 {
+    ImageSceneBase::onImageUpdated();
     if (m_isCollectRoi && hasImage() && !m_roiArea.isNull()) {
         QRectF sceneRect(mapImageToScene(m_roiArea.topLeft()),
                          mapImageToScene(m_roiArea.bottomRight()));

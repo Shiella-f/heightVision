@@ -9,7 +9,7 @@
 #include <QPixmap>
 #include <QDebug>
 
-#include "zoomScene/zoomScene.h"
+#include "Scene/zoomScene.h"
 #include "tools/bscvTool.h"
 
  const QString buttonStyle = QStringLiteral(
