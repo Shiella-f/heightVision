@@ -18,6 +18,7 @@ public:
 
     virtual void setOriginalPixmap(const QPixmap &pixmap);   // 加载原图
     virtual void showPlaceholder(const QString &text);       // 显示占位信息
+    virtual QImage getSourceImageMat() const;                // 获取原始图像的cv::Mat表示
     virtual void clearImage();                               // 清空图像内容
     bool hasImage() const;                                   // 当前是否有有效图像
     void setSourceImageSize(const QSize &size);              // 记录原图尺寸

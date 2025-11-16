@@ -18,5 +18,6 @@ private:
 
 private:
     matchWidget* m_matchWidget;
+
    
 };

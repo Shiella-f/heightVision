@@ -17,6 +17,7 @@ public:
     ~matchWidget();
 
     void displayImage(const cv::Mat &image);
+    void displayRoiImage(const QRectF &roi);
 
 
 private:
@@ -25,6 +26,7 @@ private:
     void learnMatch();
     void confirmMatch();
     void confirmRoiMatch();
+    void confirmRoiarea();
     void TestHeight();
 
 private:
@@ -32,6 +34,7 @@ private:
     QToolButton* m_learnMatchBtn;
     QToolButton* m_confirmMatchBtn;
     QToolButton* m_confirmRoiMatchBtn;
+    QToolButton* m_confirmRoiareaBtn;
 
     QWidget* m_imageDisplayWidget;
     ZoomScene* m_ImageDisplayScene;
@@ -39,6 +42,10 @@ private:
     ImageDisplayScene* m_RoiDisplayScene;
 
     cv::Mat m_currentImage;
+
+    QRectF m_Roi;
+
+
 
 
 

@@ -48,6 +48,14 @@ void ImageDisplayScene::setOriginalPixmap(const QPixmap &pixmap)
     onImageUpdated();
 }
 
+QImage ImageDisplayScene::getSourceImageMat() const
+{
+    if (m_pixmapItem && !m_pixmapItem->pixmap().isNull()) {
+        return m_pixmapItem->pixmap().toImage();
+    }
+    return QImage();
+}
+
 void ImageDisplayScene::showPlaceholder(const QString &text)
 {
     ensurePlaceholderItem();
