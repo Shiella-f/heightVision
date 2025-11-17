@@ -43,7 +43,7 @@ private:
 
     cv::Mat m_currentImage;
 
-    QRectF m_Roi;
+    QRectF m_sRoi;
 
 
 
