@@ -99,7 +99,6 @@ bool HeightCore::detectTwoSpotsInImage()
         }
 
         std::vector<cv::Point2f> centersForImage;
-        const double kMaxAreaRatio = 10; // 控制两个圆面积的最大允许比值
         if (!selectBalancedPair(detectedSpots, kMaxAreaRatio, centersForImage,
                                  debugView.empty() ? nullptr : &debugView)) {
             continue;
@@ -130,15 +129,20 @@ bool HeightCore::detectTwoSpotsInImage()
                 imageInfo.spot2Pos = cv::Point2f();
             }
 
+            qDebug() << "Spot1:" << imageInfo.spot1Pos.x << "," << imageInfo.spot1Pos.y;
+            qDebug() << "Spot2:" << imageInfo.spot2Pos.x << "," << imageInfo.spot2Pos.y;
+            if (imageInfo.distancePx.has_value()) {
+                qDebug() << "DistancePx:" << imageInfo.distancePx.value();
+            }
             // 展示处理效果图（包含拟合圆），快速确认检测质量
-            if (!debugView.empty() && resultIsDisplay) {
+
+
+            // 展示处理效果图（包含拟合圆），快速确认检测质量
+            if (!debugView.empty()) {
                 cv::Mat display = debugView.clone();
                 pyrDown(display, display);
-                cv::imshow("Detected Spots", display);
+                cv::imshow("Detectedfile Spots", display);
                 auto key = cv::waitKey(0);
-                if (key == 27) { // 按下 ESC 键退出
-                    break;
-                }
             } else {
                 continue; // 未要求显示调试图时，继续处理下一张图片
             }
@@ -373,7 +377,6 @@ bool HeightCore::computeTestImageInfo()
     }
 
     std::vector<cv::Point2f> centersForImage;
-    const double kMaxAreaRatio = 1.5; // 控制两个圆面积的最大允许比值
     if (!selectBalancedPair(detectedSpots, kMaxAreaRatio, centersForImage,
                              debugView.empty() ? nullptr : &debugView)) {
         return false;
@@ -449,6 +452,8 @@ void HeightCore::setROI(const cv::Rect2f& roi)
     m_roi = roi;
 }
 
+
+
 void HeightCore::sortImagesByName()
 {
     std::sort(m_images.begin(), m_images.end(), [](const ImageInfo& lhs, const ImageInfo& rhs) {
@@ -492,7 +497,12 @@ bool HeightCore::processImage(const cv::Mat& input,
     }
 
     cv::Mat working = input(roi).clone();
-    //imshow("working", working);
+    if(processedIsDisplay)
+    {
+    imshow("working", working);
+    cv::waitKey(0);
+    }
+
     cv::Point2f offset(static_cast<float>(roi.x), static_cast<float>(roi.y));
 
     cv::Mat gray;
@@ -528,15 +538,19 @@ bool HeightCore::processImage(const cv::Mat& input,
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(closed, contours, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
     drawContours(working, contours, -1, cv::Scalar(0, 255, 0), 2);
-    // imshow("contours", working);
-    // cv::waitKey(0);
+    if(processedIsDisplay)
+    {
+    imshow("contours", working);
+    cv::waitKey(0);
+    }
+
 
     detectedSpots.clear();
     detectedSpots.reserve(contours.size());
     std::vector<std::vector<cv::Point>> deal_contours;
     for (const auto& contour : contours) {
         double area = cv::contourArea(contour);
-        if (area < 10.0 || area > 10000.0) {
+        if (area < minArea || area > maxArea) {
             continue;
         }
 
@@ -548,7 +562,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         double circularity = 4.0 * CV_PI * area / (perimeter * perimeter);
         qDebug() << "Rejected contour with low circularity:" << circularity;
 
-        if (circularity < 0.5) {
+        if (circularity < 0.6) {
             continue;
         }
 

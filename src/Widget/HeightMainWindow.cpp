@@ -111,7 +111,7 @@ void HeightMainWindow::SetPreference()
                 nullptr,
                 "输入参数",
                 "请输入参考图片高度(mm):",
-                2.0,                      // 默认值
+                20.0,                      // 默认值
                 0.0,                   // 最小值
                 999.0,                    // 最大值
                 2,                        // 小数位数

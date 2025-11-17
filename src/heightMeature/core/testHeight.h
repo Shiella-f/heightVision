@@ -128,6 +128,10 @@ private:
     int threshold = 100;
     bool resultIsDisplay = false;
     bool processedIsDisplay = false;
-};
+
+    int minArea = 10;   // 最小面积
+    int maxArea = 10000; // 最大面积
+    double kMaxAreaRatio = 10; // 控制两个圆面积的最大允许比值；
+    };
 
 } // namespace Height::core
