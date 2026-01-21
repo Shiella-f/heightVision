@@ -5,6 +5,7 @@
 #include <optional>
 #include <opencv2/opencv.hpp>
 #include "core/testHeight.h"
+#include "../common/Widget/CustomTitleBar.h"
 
 #if defined(HEIGHTMEATURE_LIBRARY)
 #  define HEIGHTMEATURE_EXPORT Q_DECL_EXPORT // 构建 DLL 时导出符号

@@ -26,19 +26,17 @@ void showMessage(QWidget* parent, const QString& title, const QString& text, QMe
 }
 } // namespace
 
-const QString buttonStyle = QStringLiteral(
-    "QToolButton{border-radius: 5px;solid gray;color:black;text-align:center;}"
-    "QToolButton:hover{border:1px solid black;background-color:rgb(200,200,200);color:black;}"
-    "QToolButton:pressed{background-color:rgb(150,150,150);color:white;}"
-    "QToolButton:disabled{background-color:rgb(40,40,40);color:white;}"
-);
-
 HeightMainWindow::HeightMainWindow(QWidget* parent)
     : QWidget(parent),m_CameraImgShowTimer(nullptr),
       m_heightCore(std::make_unique<Height::core::HeightCore>())
 {
     init();
-    this->setWindowTitle(QStringLiteral("Height Measurement Tool"));
+    this->setWindowTitle(QStringLiteral("")); 
+        // 设置无边框窗口
+    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
+
+    this->sizePolicy().setHorizontalStretch(0);
+    this->sizePolicy().setVerticalStretch(0);
     this->setFixedSize(800, 600);
 }
 
@@ -54,7 +52,6 @@ void HeightMainWindow::init()
     auto newButton = [](QToolButton* btn, const QString& text) {
         btn->setText(text);
         btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-        btn->setStyleSheet(buttonStyle);
         btn->setFixedSize(100, 20);
         return btn;
     };
@@ -158,11 +155,23 @@ void HeightMainWindow::init()
     Pre_img_view->setInteractive(true);
     m_zoomScene->showPlaceholder(QStringLiteral("Camera"));
     
-    QGridLayout* mainLayout = new QGridLayout(this);
+        // 创建自定义标题栏
+    CustomTitleBar* titleBar = new CustomTitleBar(this);
+    titleBar->setTitle("Orion Vision 窗口");
+    connect(titleBar, &CustomTitleBar::minimizeClicked, this, &QWidget::showMinimized);
+    connect(titleBar, &CustomTitleBar::closeClicked, this, &QWidget::close);
+
+    QGridLayout* contentLayout = new QGridLayout(nullptr);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    contentLayout->setSpacing(0);
+    contentLayout->addWidget(Pre_img_view, 0, 0, 6, 7);
+    contentLayout->addWidget(m_testAreaGroupBox, 0, 7 ,1 ,2);
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
-    mainLayout->addWidget(Pre_img_view, 0, 0, 6, 7);
-    mainLayout->addWidget(m_testAreaGroupBox, 0, 7 ,1 ,2);
+    mainLayout->addWidget(titleBar);
+    mainLayout->addLayout(contentLayout);
     this->setLayout(mainLayout);
 }
 
