@@ -1,0 +1,1 @@
+﻿C:\Users\m1760\Desktop\bcadhicv141\src\plugins\heightMeature\package_height_plugin.ps1这个用来构建测高部分的dll文件，帮我修改一下，然后这个测高应该不需要依赖BSCV库

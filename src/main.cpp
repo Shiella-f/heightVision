@@ -1,7 +1,7 @@
 #include "MainWindow.h"
-
 #include <QApplication>
-#pragma comment(lib, "user32.lib")
+#include <QFont>
+#include <QFile>
 
 int main(int argc, char *argv[])
 {
@@ -9,4 +9,5 @@ int main(int argc, char *argv[])
     MainWindow w;
     w.show();
     return a.exec();
+
 }

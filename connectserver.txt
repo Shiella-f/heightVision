@@ -1,0 +1,6 @@
+﻿cd /home/pi/UDPserver/buildld
+./matchserver --stream-port 9000
+
+hostname -I
+
+ssh -L 9000:127.0.0.1:9000 pi@192.168.137.131

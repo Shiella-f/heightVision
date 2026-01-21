@@ -1,108 +1,76 @@
-cmake_minimum_required(VERSION 3.19)
-project(MainWindow LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
+project(QtVscodeSample LANGUAGES CXX)
 
-# Qt 6
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-qt_standard_project_setup()
+# 导出编译命令数据库，方便 VS Code 和 IntelliSense 使用
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-file(GLOB_RECURSE PROJECT_SOURCES
-    CONFIGURE_DEPENDS
-    "src/*.c"
-    "src/*.cc"
-    "src/*.cxx"
-    "src/*.cpp"
-    "src/*.h"
-    "src/*.hh"
-    "src/*.hpp"
-    "src/*.hxx"
-    "src/*.ui"
-    "src/*.qrc"
-    "src/*.qml"
-)
+# Enable Qt automoc/autouic to generate moc files for classes with Q_OBJECT
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
 
-qt_add_executable(MainWindow
-    MACOSX_BUNDLE
-    ${PROJECT_SOURCES}
-)
 
-# 1. 配置OpenCV（使用自己编译的版本）
-# 如需自定义，请在配置时传入 -DOpenCV_DIR=... 覆盖下面的默认值
-set(OpenCV_DIR "C:/opencv/opencv_build" CACHE PATH "OpenCV build directory")
-find_package(OpenCV REQUIRED)  # 查找OpenCV库
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/src/plugins/template/tools")
 
-target_link_libraries(MainWindow
-    PRIVATE
-        Qt::Core
-        Qt::Widgets
-        ${OpenCV_LIBS}
-)
+find_package(Qt5 COMPONENTS Widgets Concurrent Multimedia REQUIRED)
+find_package(BSCV REQUIRED)
 
-target_include_directories(MainWindow
-    PRIVATE
-        ${OpenCV_INCLUDE_DIRS}
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+add_subdirectory(src/common)
+add_subdirectory(src/plugins/template)
+add_subdirectory(src/plugins/heightMeature)
+add_subdirectory(src/plugins/Calib)
 
-include(GNUInstallDirs)
 
-# 在 Windows 上避免默认安装到 Program Files（需要管理员权限）
-if (WIN32)
-    # 如果安装前缀包含 "Program Files"，则改为构建目录下的 install
-    if (CMAKE_INSTALL_PREFIX MATCHES "Program Files")
-        set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install path" FORCE)
+file(GLOB_RECURSE ALL_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/src/*.c)
+set(PROJECT_SOURCES "")
+foreach(SRC ${ALL_SOURCES})
+    file(TO_CMAKE_PATH "${SRC}" SRC_NORMALIZED)
+    if(NOT SRC_NORMALIZED MATCHES "/plugins/" AND NOT SRC_NORMALIZED MATCHES "/common/")
+        list(APPEND PROJECT_SOURCES ${SRC})
     endif()
-endif()
+endforeach()
 
+file(GLOB_RECURSE PLUGIN_HEADERS ${CMAKE_SOURCE_DIR}/src/plugins/*.h)
+set_source_files_properties(${PLUGIN_HEADERS} PROPERTIES SKIP_AUTOMOC ON)
 
+add_executable(qt_vscode_app ${PROJECT_SOURCES} ${PLUGIN_HEADERS})
 
-
-install(TARGETS MainWindow
-    BUNDLE  DESTINATION .
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+target_include_directories(qt_vscode_app SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/plugins
 )
 
-qt_generate_deploy_app_script(
-    TARGET MainWindow
-    OUTPUT_SCRIPT deploy_script
-    NO_UNSUPPORTED_PLATFORM_ERROR
+target_include_directories(qt_vscode_app PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${BSCV_INCLUDE_DIRS}
 )
-install(SCRIPT ${deploy_script})
-
-# 可选：拷贝 OpenCV 运行时 DLL（如果提供了 OPENCV_DLL_DIR）
-set(OPENCV_DLL_DIR "" CACHE PATH "Directory containing OpenCV runtime DLLs (e.g. .../bin)")
-if (OPENCV_DLL_DIR)
-    file(GLOB OpenCV_DLLS "${OPENCV_DLL_DIR}/*.dll")
-    if (OpenCV_DLLS)
-        install(FILES ${OpenCV_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
-    endif()
-endif()
 
 
-# 在构建目录自动部署 Qt 运行时依赖（使 VS Code 直接“运行目标”即可弹窗）
-if (WIN32)
-    # 查找 windeployqt
-    find_program(WINDEPLOYQT_EXECUTABLE
-        NAMES windeployqt windeployqt6
-        HINTS
-            "$ENV{QT_DIR}/bin"
-            "$ENV{Qt6_DIR}/bin"
-            "$ENV{QTDIR}/bin"
-            "C:/Qt/6.9.1/mingw_64/bin" # 常见安装路径（可按需调整）
-        PATHS ENV PATH
+target_link_libraries(qt_vscode_app PRIVATE Qt5::Widgets Qt5::Concurrent Qt5::Multimedia ${BSCV_LIBRARIES} GuiCommon HeightMeaturePlugin)
+
+
+
+
+
+if(BSCV_DLLS)
+    add_custom_command(TARGET qt_vscode_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${BSCV_DLLS} $<TARGET_FILE_DIR:qt_vscode_app>
+        COMMENT "复制 BSCV 运行时 DLL 到输出目录"
     )
-
-    if (WINDEPLOYQT_EXECUTABLE)
-        add_custom_command(TARGET MainWindow POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXECUTABLE}" "$<TARGET_FILE:MainWindow>" --force
-            WORKING_DIRECTORY "$<TARGET_FILE_DIR:MainWindow>"
-            COMMENT "Deploying Qt runtime dependencies to build directory with windeployqt"
-            VERBATIM
-        )
-    else()
-        message(STATUS "windeployqt not found. You can still run 'cmake --install' to deploy, or set WINDEPLOYQT_EXECUTABLE.")
-    endif()
-    
-
 endif()
+
+add_custom_command(TARGET qt_vscode_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:TemplateMatchPlugin> $<TARGET_FILE_DIR:qt_vscode_app>
+    COMMENT "复制 TemplateMatchPlugin DLL 到输出目录"
+)
+
+add_custom_command(TARGET qt_vscode_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:HeightMeaturePlugin> $<TARGET_FILE_DIR:qt_vscode_app>
+    COMMENT "复制 HeightMeaturePlugin DLL 到输出目录"
+)
+
+add_custom_command(TARGET qt_vscode_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:CalibPlugin> $<TARGET_FILE_DIR:qt_vscode_app>
+    COMMENT "复制 CalibPlugin DLL 到输出目录"
+)

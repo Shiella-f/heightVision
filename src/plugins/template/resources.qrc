@@ -1,0 +1,7 @@
+﻿<RCC>
+    <qresource prefix="/res">
+        <!-- 指向仓库根目录下的 res/dark_style.qss，
+             相对路径从 src/plugins/template 到 项目根 需要上溯三级 -->
+        <file alias="dark_style.qss">../../../res/dark_style.qss</file>
+    </qresource>
+</RCC>

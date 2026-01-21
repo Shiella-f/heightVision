@@ -1,0 +1,34 @@
+{
+  "configurations": [
+    {
+      "name": "Win32",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtWidgets",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtGui",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtCore",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtNetwork",
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtMultimedia",
+        "C:/opencv/Sources/include",
+        "C:/opencv/build/install/include",
+        "C:/Program Files (x86)/MVS/Development/Includes",
+        "C:/Basler/Development/include",
+        "C:/Basler/Development"
+      ],
+      "defines": [
+        "WIN32",
+        "_DEBUG",
+        "QT_WIDGETS_LIB",
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "windowsSdkVersion": "10.0.26100.0",
+      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/cl.exe",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ],
+  "version": 4
+}
