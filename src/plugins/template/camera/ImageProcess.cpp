@@ -82,7 +82,6 @@ void ImageProcess::loadCalibrationData()
     QFile file(calibPath);
     if (!file.exists()) {
         qInfo().noquote() << "相机标定文件不存在或未选择标定文件";
-        return;
     }
 
     try {

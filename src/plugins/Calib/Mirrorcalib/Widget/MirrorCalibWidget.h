@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
+#include <QCheckBox>
 #include "Mirrorcalib/Core/MirrorCalib.h"
 #include "../Scene/MirrorScene.h"
 #include "../common/Widget/baseWidget.h"
@@ -42,6 +43,9 @@ private:
     QToolButton* m_Calib9x9btn;
     QToolButton* m_ConfirmSizebtn;
     QToolButton* m_savedatebtn;
+    QToolButton* m_clearRoibtn;
+
+    QCheckBox* m_setRoibox;
     
     QTableWidget* m_resultTable; 
 
@@ -49,4 +53,6 @@ private:
     
     std::vector<cv::Point2f> m_3x3Points;
     std::vector<cv::Point2f> m_9x9Points;
+
+    QRectF m_roiArea = QRectF();  // ROI区域
 };

@@ -46,7 +46,7 @@ public:
         return -1.0;
     }
 
-    void setCameraImage(const cv::Mat& image) override {
+    void setCameraImage(const QImage& image) override {
         if (m_widget) m_widget->setCameraImage(image);
     }
 

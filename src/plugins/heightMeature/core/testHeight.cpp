@@ -123,13 +123,8 @@ bool HeightCore::detectTwoSpotsInImage()
                 {
                     cv::circle(display, spot.first, 5, cv::Scalar(0, 255, 0), -1);
                 }
-                //pyrDown(display, display);
                 cv::imshow("Detected Spots", display);
-                auto key = cv::waitKey(0);
-                if (key == 27) // 按下 ESC 键退出显示
-                {
-                    cv::destroyAllWindows();
-                }
+                cv::waitKey(500);
             } 
         }
     }
@@ -425,8 +420,8 @@ bool HeightCore::computeTestImageInfo()
                 {
                     cv::circle(display, spot.first, 5, cv::Scalar(0, 255, 0), -1);
                 }
-                cv::imshow("Detected Spots", display);
-                cv::waitKey(0);}
+                cv::imshow("Detected1 Spots", display);
+                cv::waitKey(500);}
             return true;
         }
     return false;
@@ -518,7 +513,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         if(tempworking.size().width < 800)
             cv::pyrUp(tempworking, tempworking);
         imshow("Blur", tempworking);
-        cv::waitKey(0);
+        cv::waitKey(500);
     }
 
     cv::Mat thresh;
@@ -538,7 +533,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         if(tempworking.size().width < 800)
             cv::pyrUp(tempworking, tempworking);
         imshow("thresh", tempworking);
-        cv::waitKey(0);
+        cv::waitKey(500);
     }
 
     cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
@@ -550,7 +545,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         if(tempworking.size().width < 800)
             cv::pyrUp(tempworking, tempworking);
         imshow("closed", tempworking);
-        cv::waitKey(0);
+        cv::waitKey(500);
     }
 
     std::vector<std::vector<cv::Point>> contours;

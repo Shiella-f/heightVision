@@ -73,14 +73,33 @@ void MirrorCalibWidget::init()
     m_Calib9x9btn = newButton(new QToolButton(this), QStringLiteral("9x9振镜校正"));
     connect(m_Calib9x9btn, &QToolButton::clicked, this, &MirrorCalibWidget::onCalibrate9x9);
     calibLayout->addWidget(m_Calib9x9btn, 0, 1);
-    
+
+    m_setRoibox = new QCheckBox(QStringLiteral("设置ROI"), this);
+    m_setRoibox->setChecked(false);
+
+    connect(m_setRoibox, &QCheckBox::stateChanged, this, [this](int state){
+        bool enabled = (state == Qt::Checked);
+        m_MirrorScene->setRoiSelectionEnabled(enabled);
+    });
+
+    calibLayout->addWidget(m_setRoibox, 1, 0);
+
+    m_clearRoibtn = newButton(new QToolButton(this), QStringLiteral("清除ROI"));
+    connect(m_clearRoibtn, &QToolButton::clicked, this, [this](){
+        m_MirrorScene->clearRoi();
+        if(m_setRoibox->isChecked()) {
+            m_MirrorScene->setRoiSelectionEnabled(true);
+        }
+    });
+    calibLayout->addWidget(m_clearRoibtn, 1, 1);
+
     m_ConfirmSizebtn = newButton(new QToolButton(this), QStringLiteral("保存成像数据"));
     qInfo() << m_ConfirmSizebtn->size();
     connect(m_ConfirmSizebtn, &QToolButton::clicked, this, &MirrorCalibWidget::onConfirmSize);
-    calibLayout->addWidget(m_ConfirmSizebtn, 1, 0);
+    calibLayout->addWidget(m_ConfirmSizebtn, 2, 0);
     m_savedatebtn = newButton(new QToolButton(this), QStringLiteral("保存校正数据"));
     connect(m_savedatebtn, &QToolButton::clicked, this, &MirrorCalibWidget::onSaveCalibData);
-    calibLayout->addWidget(m_savedatebtn, 1, 1);
+    calibLayout->addWidget(m_savedatebtn, 2, 1);
     
 
     //calibLayout->addLayout(PtsLayout, 2, 0, 1, 2);
@@ -163,7 +182,9 @@ cv::Mat MirrorCalibWidget::getCurrentCameraImage() {
 }
 
 void MirrorCalibWidget::onSnap3x3Image() {
+
     m_currentImage = getCurrentCameraImage();
+    
     if (!m_currentImage.empty()) {
         m_MirrorScene->clearOverlays();
         cv::Mat rgb;
@@ -194,13 +215,25 @@ void MirrorCalibWidget::onSnap9x9Image() {
 }
 
 void MirrorCalibWidget::onCalibrate3x3() {
+    m_roiArea = m_MirrorScene->getRoiArea();
     if (m_currentImage.empty()) {
         logMessage("请先采集3x3图像");
         return;
     }
-    
+    cv::Mat workImg;
+    workImg.create(m_currentImage.size(), m_currentImage.type());
+    if(m_roiArea.width() > 0 && m_roiArea.height() > 0) {
+        cv::Rect roiRect(static_cast<int>(m_roiArea.left()), static_cast<int>(m_roiArea.top()),
+                         static_cast<int>(m_roiArea.width()), static_cast<int>(m_roiArea.height()));
+        // 确保ROI在图像范围内
+        roiRect &= cv::Rect(0, 0, m_currentImage.cols, m_currentImage.rows);
+        m_currentImage(roiRect).copyTo(workImg(roiRect));
+    }else {
+        workImg = m_currentImage;
+    }
+    logMessage(QString("Work image size: %1 x %2").arg(workImg.cols).arg(workImg.rows));
     cv::Size patternSize(3, 3);
-    bool found = m_core->findMarkerPoints(m_currentImage, patternSize, m_3x3Points);
+    bool found = m_core->findMarkerPoints(workImg, patternSize, m_3x3Points);
     
     if (found) {
         // 如果找到
@@ -256,13 +289,24 @@ void MirrorCalibWidget::onCalibrate3x3() {
 }
 
 void MirrorCalibWidget::onCalibrate9x9() {
+    m_roiArea = m_MirrorScene->getRoiArea();
     if (m_currentImage.empty()) {
         logMessage("请先采集9x9图像");
         return;
     }
-    
+    cv::Mat workImg;
+    workImg.create(m_currentImage.size(), m_currentImage.type());
+    if(m_roiArea.width() > 0 && m_roiArea.height() > 0) {
+        cv::Rect roiRect(static_cast<int>(m_roiArea.left()), static_cast<int>(m_roiArea.top()),
+                         static_cast<int>(m_roiArea.width()), static_cast<int>(m_roiArea.height()));
+        // 确保ROI在图像范围内
+        roiRect &= cv::Rect(0, 0, m_currentImage.cols, m_currentImage.rows);
+        m_currentImage(roiRect).copyTo(workImg(roiRect));
+    }else {
+        workImg = m_currentImage;
+    }
     cv::Size patternSize(9, 9);
-    bool found = m_core->findMarkerPoints(m_currentImage, patternSize, m_9x9Points);
+    bool found = m_core->findMarkerPoints(workImg, patternSize, m_9x9Points);
     
     if (found) {
         m_MirrorScene->clearOverlays();
@@ -495,3 +539,4 @@ void MirrorCalibWidget::onSaveCalibData()
         }
     }
 }
+

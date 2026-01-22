@@ -120,7 +120,6 @@ private:
                             std::vector<std::pair<cv::Point2f, float>>& outSpots) const;
 
     int threshold = 180;
-    bool resultIsDisplay = false;
     bool processedIsDisplay = false;
 
     double minArea = 10;   // 最小面积

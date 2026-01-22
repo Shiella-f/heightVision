@@ -18,7 +18,7 @@ public:
     virtual void saveCalibrationData() = 0; //保存高度标定数据
     virtual void loadCalibrationData() = 0; //加载高度标定数据
     virtual double getMeasurementResult() const = 0;//获取测量结果
-    virtual void setCameraImage(const cv::Mat& image) = 0;//设置相机图像
+    virtual void setCameraImage(const QImage& image) = 0;//设置相机图像
 };
 
 #define HeightPluginInterface_iid "com.yourcompany.HeightPluginInterface"

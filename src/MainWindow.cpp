@@ -326,7 +326,7 @@ void MainWindow::usbCamera()
     m_infoArea->append("USB Camera opened successfully.");
     bool fpsOk = cap.set(cv::CAP_PROP_FPS, 15);
     cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
-    cap.set(cv::CAP_PROP_FOCUS, 350);
+    cap.set(cv::CAP_PROP_FOCUS, 500);
     m_cameraTimer = new QTimer(this);
     connect(m_cameraTimer, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
     m_cameraTimer->start(66);
@@ -376,7 +376,11 @@ void MainWindow::updateCameraFrame()
             if (m_imageDisplayWidget) 
             {
                 m_imageDisplayWidget->setOriginalPixmap(QPixmap::fromImage(qimg));
+                if(m_heightMainWindow && m_heightMainWindow->isVisible()) {
+                    m_heightPluginFactory->setCameraImage(qimg);
+                }
             }
+            
         }
     } else {
         m_infoArea->append("Camera handle or VideoCapture not initialized.");
@@ -397,14 +401,12 @@ void MainWindow::loadCalibrationData()
     QFile file(calibPath);
     if (!file.exists()) {
         m_infoArea->append("相机标定文件不存在或未选择标定文件");
-        return;
     }
 
     try {
         cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
         if (!fs.isOpened()) {
             m_infoArea->append("无法打开相机标定文件");
-            return;
         }
 
         fs["camera_matrix"] >> m_cameraMatrix;

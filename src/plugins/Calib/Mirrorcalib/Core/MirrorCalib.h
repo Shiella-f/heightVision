@@ -24,5 +24,5 @@ public:
     // 保存标定结果到 XML/YAML
     bool saveCalibrationMatrix(const QString& filepath, const cv::Mat& matrix);
 
-    bool displayimg = false;
+    bool displayimg = true;
 };

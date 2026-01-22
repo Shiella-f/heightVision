@@ -26,6 +26,57 @@ void showMessage(QWidget* parent, const QString& title, const QString& text, QMe
 }
 } // namespace
 
+bool qImage2cvImage(const QImage &p_qimg, cv::Mat &p_mat, int channel = 3)
+    {
+        try
+        {
+            if (p_qimg.isNull())
+            {
+                qWarning() << QObject::tr("图像为空无法转换");
+                return false;
+            }
+            switch (channel)
+            {
+            case 1:
+            {
+                QImage temp = (p_qimg.format() != QImage::Format_Grayscale8 ? p_qimg.convertToFormat(QImage::Format_Grayscale8) : p_qimg);
+                p_mat = cv::Mat(temp.height(),
+                            temp.width(),
+                            CV_8UC1)
+                            .clone();
+                uchar *pDest = p_mat.data;
+                for (int row = 0; row < p_mat.rows; row++, pDest += p_mat.step)
+                {
+                    uchar *pSrc = temp.scanLine(row);
+                    memcpy(pDest, pSrc, p_mat.cols);
+                }
+            }
+            break;
+            case 3:
+            default:
+            {
+                QImage temp = p_qimg.format() != QImage::Format_RGB888 ? p_qimg.convertToFormat(QImage::Format_RGB888) : p_qimg;
+                cv::Mat matTemp = cv::Mat(temp.height(),
+                                          temp.width(),
+                                          CV_8UC3,
+                                          (uchar *)temp.bits(),
+                                          temp.bytesPerLine());
+                
+                // 必须进行 RGB 到 BGR 的转换，否则会红蓝颠倒
+                cv::cvtColor(matTemp, p_mat, cv::COLOR_RGB2BGR);
+            }
+            break;
+            }
+            return true;
+        }
+        catch (cv::Exception &e)
+        {
+            qWarning().noquote() << QStringLiteral("qImageToCVImage error:") << e.what();
+        }
+        return false;
+    }
+
+
 HeightMainWindow::HeightMainWindow(QWidget* parent)
     : QWidget(parent),m_CameraImgShowTimer(nullptr),
       m_heightCore(std::make_unique<Height::core::HeightCore>())
@@ -55,16 +106,9 @@ void HeightMainWindow::init()
         btn->setFixedSize(100, 20);
         return btn;
     };
-    m_CameraImgShowTimer = new QTimer(this);
-    connect(m_CameraImgShowTimer, &QTimer::timeout, this, [this]() {
-        if (!CameraImg.empty()) {
-            displayImage(CameraImg);
-            m_heightCore->loadTestImageInfo(CameraImg);
-        }
-    });
+
     m_loadFileBtn = newButton(new QToolButton(this), QStringLiteral("加载文件夹 "));
     m_SetPreferenceBtn = newButton(new QToolButton(this), QStringLiteral("设置基准 "));
-    m_SetPreferenceBtn->setEnabled(false);
     m_selectImageBtn = newButton(new QToolButton(this), QStringLiteral("选择图片 "));
     m_startTestBtn = newButton(new QToolButton(this), QStringLiteral("开始测高 "));
     m_selectROIBtn = newButton(new QToolButton(this), QStringLiteral("设置ROI "));
@@ -72,7 +116,7 @@ void HeightMainWindow::init()
     m_saveCalibrationDataBtn = newButton(new QToolButton(this), QStringLiteral("保存标定数据 "));
     m_loadCalibrationDataBtn = newButton(new QToolButton(this), QStringLiteral("加载标定数据 "));
     m_OpenCameraBtn = newButton(new QToolButton(this), QStringLiteral("显示当前照片 "));
-    m_OpenCameraBtn->setCheckable(true);
+    //m_OpenCameraBtn->setCheckable(true);
     m_OpenCameraBtn->setText("显示当前照片");
     connect(m_OpenCameraBtn, &QToolButton::toggled, this, &HeightMainWindow::OpenCameraBtnToggled);
 
@@ -132,18 +176,18 @@ void HeightMainWindow::init()
     QGroupBoxLayout->addWidget(m_selectImageBtn, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
     QGroupBoxLayout->addWidget(m_startTestBtn, 1, 1);
     QGroupBoxLayout->addWidget(m_selectROIBtn, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    QGroupBoxLayout->addWidget(m_confirmROIBtn, 2, 1);
+    QGroupBoxLayout->addWidget(m_OpenCameraBtn, 2, 1);
     QGroupBoxLayout->addWidget(m_saveCalibrationDataBtn, 3, 0, Qt::AlignLeft | Qt::AlignVCenter);
     QGroupBoxLayout->addWidget(m_loadCalibrationDataBtn, 3, 1);
-    QGroupBoxLayout->addWidget(m_OpenCameraBtn, 4, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    QGroupBoxLayout->addWidget(displayLabel, 5, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    QGroupBoxLayout->addWidget(m_thresholdBox, 5, 1);
-    //QGroupBoxLayout->addWidget(m_isDisplayprocessImg, 6, 0);
+    //QGroupBoxLayout->addWidget(m_OpenCameraBtn, 4, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    QGroupBoxLayout->addWidget(displayLabel, 4, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    QGroupBoxLayout->addWidget(m_thresholdBox, 4, 1);
+    QGroupBoxLayout->addWidget(m_isDisplayprocessImg, 5, 0);
 
-    QGroupBoxLayout->setRowStretch(6, 1);
+    QGroupBoxLayout->setRowStretch(5, 1);
 
-    QGroupBoxLayout->addWidget(m_currentHeightLabel, 7, 0, Qt::AlignRight | Qt::AlignVCenter);
-    QGroupBoxLayout->addWidget(m_resultLabel, 7, 1, Qt::AlignLeft | Qt::AlignVCenter);
+    QGroupBoxLayout->addWidget(m_currentHeightLabel, 6, 0, Qt::AlignRight | Qt::AlignVCenter);
+    QGroupBoxLayout->addWidget(m_resultLabel, 6, 1, Qt::AlignLeft | Qt::AlignVCenter);
     m_testAreaGroupBox->setLayout(QGroupBoxLayout);
 
     m_zoomScene = new HeightScene(this);
@@ -200,7 +244,7 @@ void HeightMainWindow::displayImage(const cv::Mat &image)
 
     m_zoomScene->setOriginalPixmap(QPixmap::fromImage(qImage));
     m_zoomScene->setSourceImageSize(QSize(image.cols, image.rows));
-    QTimer::singleShot(0, this, [this](){ if (m_zoomScene) m_zoomScene->resetImage(); });
+    // QTimer::singleShot(0, this, [this](){ if (m_zoomScene) m_zoomScene->resetImage(); });
 }
 
 void HeightMainWindow::setHeightdisplay(const double& height)
@@ -245,8 +289,13 @@ void HeightMainWindow::StartTest()
         showMessage(this, QStringLiteral("错误"), QStringLiteral("测高引擎未初始化"), QMessageBox::Critical);
         return;
     }
+    GetROI();
+    if(m_cvRoi.width <= 0 || m_cvRoi.height <= 0) {
+        m_cvRoi = cv::Rect2f(0, 0, CameraImg.cols, CameraImg.rows);
+        m_heightCore->setROI(m_cvRoi);
+    }
     if(!m_heightCore->computeTestImageInfo()) {
-        showMessage(this, QStringLiteral("提示"), QStringLiteral("图像光斑识别失败"), QMessageBox::Warning);
+        showMessage(this, QStringLiteral("提示"), QStringLiteral("图像光斑识别失败,请尝试设置ROI"), QMessageBox::Warning);
         return;
     }
     m_TestHeight = m_heightCore->measureHeightForImage().value_or(-1.0);
@@ -280,6 +329,11 @@ void HeightMainWindow::SelectImage()
 //设置参考高度
 void HeightMainWindow::SetPreference() 
 {
+    GetROI();
+    if(m_cvRoi.width <= 0 || m_cvRoi.height <= 0) {
+        m_cvRoi = cv::Rect2f(0, 0, CameraImg.cols, CameraImg.rows);
+        m_heightCore->setROI(m_cvRoi);
+    }
     if (!m_heightCore) {
         showMessage(this, QStringLiteral("错误"), QStringLiteral("测高引擎未初始化"), QMessageBox::Critical);
         return;
@@ -310,11 +364,11 @@ void HeightMainWindow::SetPreference()
         }
 
     if(!m_heightCore->setPreferenceHeight(prefHeight)) {
-        showMessage(this, QStringLiteral("提示"), QStringLiteral("设置参考高度失败"), QMessageBox::Warning);
+        showMessage(this, QStringLiteral("提示"), QStringLiteral("设置参考高度失败,请尝试设置ROI"), QMessageBox::Warning);
         return;
     }
     if(!m_heightCore->computeHeightValues()) {
-        showMessage(this, QStringLiteral("提示"), QStringLiteral("参考高度值失败"), QMessageBox::Warning);
+        showMessage(this, QStringLiteral("提示"), QStringLiteral("参考高度值失败,请尝试设置ROI"), QMessageBox::Warning);
         return;
     }
     std::vector<double> distancePxList = m_heightCore->getDistancePxList();
@@ -347,11 +401,6 @@ void HeightMainWindow::GetROI()
                          static_cast<float>(roi.width()),
                          static_cast<float>(roi.height()));
     m_heightCore->setROI(m_cvRoi);
-    qDebug() << "Selected ROI:"
-             << "x =" << m_cvRoi.x
-             << "y =" << m_cvRoi.y
-             << "width =" << m_cvRoi.width
-             << "height =" << m_cvRoi.height;
 }
 
 void HeightMainWindow::onCalibrationDataSaved()
@@ -409,16 +458,29 @@ void HeightMainWindow::onCalibrationDataLoaded()
 
 void HeightMainWindow::OpenCameraBtnToggled()
 {
-    if (m_OpenCameraBtn->isChecked()) {
-        m_OpenCameraBtn->setText("关闭当前照片");
-        m_CameraImgShowTimer->start(66); // 每66ms更新一次图像显示
-    } else {
-        m_OpenCameraBtn->setText("显示当前照片");
-        m_CameraImgShowTimer->stop();
+    if (!CameraImg.empty()) {
+        currentCameraImg = CameraImg.clone();
+        displayImage(currentCameraImg);
+        m_heightCore->loadTestImageInfo(currentCameraImg);
     }
 }
 
 double HeightMainWindow::getMeasurementResult() const
 {
     return m_TestHeight;
+}
+
+void HeightMainWindow::setCameraImage(const QImage& image)
+{
+    if (image.isNull()) {
+        CameraImg.release();
+        return;
+    }
+
+    cv::Mat mat;
+    if (!qImage2cvImage(image, mat, 3)) {
+        qWarning() << "Failed to convert QImage to cv::Mat";
+        return;
+    }
+    CameraImg = mat.clone();
 }

@@ -38,7 +38,7 @@ public:
     void onCalibrationDataSaved();
     void onCalibrationDataLoaded();
     double getMeasurementResult() const;
-    void setCameraImage(const cv::Mat& image){CameraImg = image;}
+    void setCameraImage(const QImage& image);
 
 private:
     void init();
@@ -76,6 +76,7 @@ private:
     double calibB;
     cv::Mat m_showImage = cv::Mat();
     cv::Mat CameraImg = cv::Mat();
+    cv::Mat currentCameraImg = cv::Mat();
 
     double m_TestHeight = -1.0;
 
