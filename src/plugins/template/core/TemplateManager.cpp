@@ -452,11 +452,6 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
     return results;
 } 
 
-std::vector<cv::Point2f> TemplateManager::currentFeaturePoints() const
-{
-    return m_featurePoints;
-}
-
 std::vector<cv::Point2f> TemplateManager::collectFeaturePoints(const TIGER_BSVISION::Template& templ)
 {
     std::vector<cv::Point2f> points;

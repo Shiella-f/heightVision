@@ -231,8 +231,8 @@ void MirrorCalibWidget::onCalibrate3x3() {
     }else {
         workImg = m_currentImage;
     }
-    logMessage(QString("Work image size: %1 x %2").arg(workImg.cols).arg(workImg.rows));
     cv::Size patternSize(3, 3);
+    
     bool found = m_core->findMarkerPoints(workImg, patternSize, m_3x3Points);
     
     if (found) {
@@ -253,8 +253,9 @@ void MirrorCalibWidget::onCalibrate3x3() {
                 return a.x < b.x;
             });
         }
+        int pointsize = (workImg.cols)/900 *5;
         for (const auto& pt : m_3x3Points) {
-            m_MirrorScene->addOverlayPoint(QPointF(pt.x, pt.y), QPen(Qt::red), 5);
+            m_MirrorScene->addOverlayPoint(QPointF(pt.x, pt.y), QPen(Qt::red), pointsize);
         }
 
         std::vector<cv::Point2f> preset3_3Points;
@@ -325,8 +326,9 @@ void MirrorCalibWidget::onCalibrate9x9() {
                 return a.x < b.x;
             });
         }
+        int pointsize = (workImg.cols)/900 *3;
         for (const auto& pt : m_9x9Points) {
-            m_MirrorScene->addOverlayPoint(QPointF(pt.x, pt.y), QPen(Qt::blue), 3);
+            m_MirrorScene->addOverlayPoint(QPointF(pt.x, pt.y), QPen(Qt::blue), pointsize);
         }
         
         std::vector<cv::Point2f> preset9_9Points;

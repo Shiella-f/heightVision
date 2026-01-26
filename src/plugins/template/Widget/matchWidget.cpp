@@ -281,7 +281,6 @@ void matchWidget::init()
 
     m_CameraCalibBtn = newButton(new QToolButton(this), QStringLiteral("标定"));
     m_testHeightBtn = newButton(new QToolButton(this), QStringLiteral("高度测量"));
-    m_testBtn = newButton(new QToolButton(this), QStringLiteral("测试按钮"));
 
     connect(m_CameraCalibBtn, &QToolButton::clicked, this, &matchWidget::CameraCalibBtnClicked);
     connect(m_testHeightBtn, &QToolButton::clicked, this, &matchWidget::testHeightBtnClicked);
@@ -290,7 +289,6 @@ void matchWidget::init()
     functionLayout->setAlignment(Qt::AlignLeft);
     functionLayout->addWidget(m_CameraCalibBtn, Qt::AlignLeft);
     functionLayout->addWidget(m_testHeightBtn, Qt::AlignLeft);
-    functionLayout->addWidget(m_testBtn, Qt::AlignLeft);
     // 内容区域布局：左侧图像，右侧控制面板
     QHBoxLayout* contentLayout = new QHBoxLayout;
     contentLayout->setContentsMargins(10, 10, 10, 10);

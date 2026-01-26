@@ -583,7 +583,7 @@ bool HeightCore::processImage(const cv::Mat& input,
             float h = rotRect.size.height;
             if (w > 0 && h > 0) {
                 float inertiaRatio = std::min(w, h) / std::max(w, h);
-                if (inertiaRatio < 0.2) { // 长宽比限制在 1:5 以内
+                if (inertiaRatio < 0.2) { // 长宽比限制
                     continue;
                 }
             }
@@ -616,7 +616,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         // 将像素值平方，可以抑制低亮度的噪声，突出高亮度的中心，提高亚像素精度
         cv::Mat squaredRoi;
         maskedRoi.convertTo(squaredRoi, CV_32F);
-        cv::pow(squaredRoi, 1, squaredRoi);//使用平方加权质心法 (pow 2 会过度放大亮度差异，改为 pow 1 保持线性)
+        cv::pow(squaredRoi, 1, squaredRoi);//使用质心法
 
         cv::Moments mu = cv::moments(squaredRoi, false); 
 

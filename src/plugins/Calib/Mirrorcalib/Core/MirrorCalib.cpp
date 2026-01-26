@@ -182,7 +182,7 @@ bool MirrorCalib::findMarkerPoints(const cv::Mat& image, cv::Size patternSize, s
     //cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
 
     cv::Mat binary;
-    cv::threshold(gray, binary, 100 ,255, cv::THRESH_BINARY);
+    cv::threshold(gray, binary, 150 ,255, cv::THRESH_BINARY);
     
     if(displayimg)
     {

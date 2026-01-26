@@ -12,7 +12,7 @@ public:
     HeightCore() = default;
     ~HeightCore() = default;
 
-    // 表示单张图像及其识别结果（支持两个光斑）
+    // 表示单张图像及其识别结果
     struct ImageInfo {
         std::string path;               // 文件路径
         cv::Mat image;                   // 原始图像（按需加载）
@@ -77,8 +77,6 @@ public:
     //加载线性标定参数
     bool loadCalibrationData(const QString& filePath);
 
-protected:
-
 private:
     // 对已加载的图片进行双光斑识别，会将识别结果写回 ImageInfo
     bool detectTwoSpotsInImage();
@@ -87,37 +85,36 @@ private:
     // 设置相邻两张图像对应的高度间隔（毫米），默认 2.0 mm
     void setStepMm(double stepMm);
 
-private:
-    std::vector<ImageInfo> m_images;
-    cv::Mat m_showImage;    // 用于显示的图像
-    ImageInfo m_testImageInfo; // 测量图像信息
-    cv::Rect m_roi = cv::Rect(); // 光斑识别区域
-    double m_stepMm = 2.0;         // 默认采样间隔（mm）
-    
-
-    // 标定相关
-    double m_pxToMm = 0.0;         // 像素->毫米比例；若为 0 则表示未设置
-    bool m_hasLinearCalib = false; // 是否设置了线性标定
-    double m_calibA = 0.0;         // 线性系数 a
-    double m_calibB = 0.0;         // 线性偏置 b
-
-    cv::Mat m_currentImage;      // 当前处理的图像
-
-    double m_preferenceHeight = 0.0;  // 当前设置的高度参考（mm）
-    cv::Mat m_preferenceImage;    // 参考图像
-    int m_referenceImgId = -1; // 当前参考图像Id
-    mutable std::vector<cv::Point2f> m_lastDetectedCenters; // 最近一次检测出的圆心坐标集合
-
     // 按文件名或载入顺序为图像排序
     void sortImagesByName();
     // 根据 distancePx 对图像进行排序
     void rankImagesByDistancePx();
+    // 处理单张图像，检测光斑位置及半径
     bool processImage(const cv::Mat& input,
                       std::vector<std::pair<cv::Point2f, float>>& detectedSpots) const;
     // 从候选圆中挑选面积差异可接受的圆心集合
     bool selectBalancedPair(const std::vector<std::pair<cv::Point2f, float>>& spots,
                             double maxAreaRatio,
                             std::vector<std::pair<cv::Point2f, float>>& outSpots) const;
+
+private:
+    cv::Mat m_currentImage;      // 当前处理的图像
+    std::vector<ImageInfo> m_images;
+    cv::Mat m_showImage;    // 用于显示的图像
+    ImageInfo m_testImageInfo; // 测量图像信息
+    cv::Rect m_roi = cv::Rect(); // 光斑识别区域
+    double m_stepMm = 2.0;         // 默认采样间隔（mm）
+    
+    // 标定相关
+    double m_pxToMm = 0.0;         // 像素->毫米比例；若为 0 则表示未设置
+    bool m_hasLinearCalib = false; // 是否设置了线性标定
+    double m_calibA = 0.0;         // 线性系数 a
+    double m_calibB = 0.0;         // 线性偏置 b
+
+    double m_preferenceHeight = 0.0;  // 当前设置的高度参考（mm）
+    cv::Mat m_preferenceImage;    // 参考图像
+    int m_referenceImgId = -1; // 当前参考图像Id
+    mutable std::vector<cv::Point2f> m_lastDetectedCenters; // 最近一次检测出的圆心坐标集合
 
     int threshold = 180;
     bool processedIsDisplay = false;
