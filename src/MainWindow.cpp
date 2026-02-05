@@ -67,24 +67,12 @@ MainWindow::MainWindow(QWidget* parent)
 {
     s_instance = this;
     qInstallMessageHandler(MainWindow::messageHandler);
-
-    centralPointF = QPointF(100.0,100.0);  // 选中图元的中心坐标
-    m_ItemsMoveRotateData = CopyItems_Move_Rotate_Data();
-
-    // 设置无边框窗口
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
-
-        // 创建自定义标题栏
-    CustomTitleBar* titleBar = new CustomTitleBar(this);
-    titleBar->setTitle("Lpcv Tool");
-    connect(titleBar, &CustomTitleBar::minimizeClicked, this, &QWidget::showMinimized);
-    connect(titleBar, &CustomTitleBar::closeClicked, this, &QWidget::close);
-
     init();
     loadPlugin();
     loadHeightPlugin(); // 加载测高插件
     loadCalibPlugin(); // 加载相机标定插件
-    this->setWindowTitle(QStringLiteral("Lpcv Tool"));
+    this->setWindowTitle(QStringLiteral(""));
     this->setFixedSize(800, 800);
 }
 
@@ -326,7 +314,7 @@ void MainWindow::usbCamera()
     m_infoArea->append("USB Camera opened successfully.");
     bool fpsOk = cap.set(cv::CAP_PROP_FPS, 15);
     cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
-    cap.set(cv::CAP_PROP_FOCUS, 500);
+    cap.set(cv::CAP_PROP_FOCUS, 700);
     m_cameraTimer = new QTimer(this);
     connect(m_cameraTimer, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
     m_cameraTimer->start(66);

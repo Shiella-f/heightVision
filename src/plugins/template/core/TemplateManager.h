@@ -12,25 +12,14 @@ class TEMPLATE_EXPORT TemplateManager {
 public:
     TemplateManager();
     ~TemplateManager();
-    //获取模板
-    //src: 输入图像
-    //templateMat: 模板图像
-    //params: 模板参数
+    //获取模板   src: 输入图像   templateMat: 模板图像   params: 模板参数
     bool learnTemplate(const cv::Mat& src, const cv::Mat& templateMat, const MatchParams& params);
-
-    //匹配模板，返回所有匹配结果
-    //src: 输入图像
-    //params: 匹配参数
+    //匹配模板，返回所有匹配结果   src: 输入图像    params: 匹配参数
     std::vector<MatchResult> matchTemplate(const cv::Mat& src, const FindMatchParams& params) const;
     bool hasTemplate() const { return m_valid; }
-
     //返回当前模板的特征点坐标
     std::vector<cv::Point2f> currentFeaturePoints() const{ return m_featurePoints;}
-
-    //const cv::Mat& templateImage() const { return m_template; }
-    //const MatchParams& learningParams() const { return m_learnParams; }
     cv::Point2f trainCenter() const { return m_trainCenter; }
-
 private:
     //设置当前模板的特征点坐标
     static std::vector<cv::Point2f> collectFeaturePoints(const TIGER_BSVISION::Template& templ);

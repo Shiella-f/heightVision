@@ -7,28 +7,23 @@
 class IMatchWidget {
 public:
     virtual ~IMatchWidget() {}
-    // 显示窗口
-    virtual void show() = 0;
-    // 设置当前图像
+    
+    virtual void show() = 0; 
     virtual bool setcurrentImage(const cv::Mat& image) = 0;
-    // 检查是否已学习模板
     virtual bool hasLearnedTemplate() const = 0;
-    // 获取 QWidget 指针（用于布局等）
     virtual QWidget* asWidget() = 0;
-    // 设置初始化参数
-    virtual bool setinitData(const initOrionVisionParam& para) = 0;
-    // 获取移动和旋转数据
-    virtual CopyItems_Move_Rotate_Data getMoveRotateData() const = 0;
-    // 获取移动和旋转数据的 QVariantMap 表示
-    virtual QVariantMap getMoveRotateDataMap() const = 0;
-    //获取路径
-    virtual QVector<QPainterPath> getPaths() const = 0;
-    // 获取匹配结果
-    virtual std::vector<MatchResult> getMatchResults() const = 0;
+    virtual bool setinitData(const initOrionVisionParam& para) = 0; // 初始化参数
+    virtual std::vector<MatchResult> getMatchResults() const = 0;// 获取匹配结果
     // 设置振镜校准矩阵
     virtual bool setMirrorCalibMatrix(const cv::Mat& mat) = 0;
     // 图像点转换为物理点
     virtual std::vector<cv::Point2f> getPhysicalPoint(const std::vector<cv::Point2f> imagePoint) = 0;
+    // 获取移动和旋转数据
+    virtual CopyItems_Move_Rotate_Data getMoveRotateData() const = 0;
+    // 获取移动和旋转数据的 QVariantMap 表示
+    virtual QVariantMap getMoveRotateDataMap() const = 0;
+    // 获取路径
+    virtual QVector<QPainterPath> getPaths() const = 0;
 signals:
     virtual void sendDrawPath() = 0; // 匹配完成信号
 

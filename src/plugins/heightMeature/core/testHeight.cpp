@@ -504,17 +504,30 @@ bool HeightCore::processImage(const cv::Mat& input,
     cv::Point2f offset(static_cast<float>(roi.x), static_cast<float>(roi.y));
 
     // 3. 图像预处理
-    cv::Mat gray;
-    cv::cvtColor(input(roi), gray, cv::COLOR_BGR2GRAY);
-    cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
-    if(processedIsDisplay)
+    
+    cv::Mat  filtered;
+    if(Usechannel == 1)
     {
-        cv::Mat tempworking = gray.clone();
-        if(tempworking.size().width < 800)
-            cv::pyrUp(tempworking, tempworking);
-        imshow("Blur", tempworking);
-        cv::waitKey(500);
+        cv::Mat roiImg = input;
+        std::vector<cv::Mat> channels;
+        cv::split(roiImg, channels); // 分离 B, G, R 通道
+    
+    // channels[0]是蓝色(B), channels[1]是绿色(G), channels[2]是红色(R)
+    // 核心逻辑：红色激光 R值高G值低，白色反光 R值高G值也高。
+    // 使用 subtract 会自动进行饱和截断（负值变为0）
+        cv::Mat gray;
+        cv::subtract(channels[2], channels[1], gray); 
+        cv::threshold(gray, gray, 100, 255, cv::THRESH_BINARY);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(gray, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE); // 改为只检测外轮廓，减少嵌套干扰
+        cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
+        cv::drawContours(mask, contours, -1, cv::Scalar(255), cv::FILLED);
+        cv::bitwise_and(roiImg, roiImg, filtered, mask);
     }
+
+    cv::Mat gray;
+    cv::cvtColor(filtered(roi), gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
 
     cv::Mat thresh;
     // 如果阈值设置不合理(<=0)，启用 Otsu 自动阈值
@@ -527,27 +540,11 @@ bool HeightCore::processImage(const cv::Mat& input,
         tType |= cv::THRESH_OTSU;
     }
     cv::threshold(gray, thresh, tVal, 255, tType);
-    if(processedIsDisplay)
-    {
-        cv::Mat tempworking = thresh.clone();
-        if(tempworking.size().width < 800)
-            cv::pyrUp(tempworking, tempworking);
-        imshow("thresh", tempworking);
-        cv::waitKey(500);
-    }
 
     cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
     cv::Mat closed;
     cv::morphologyEx(thresh, closed, cv::MORPH_CLOSE, element, cv::Point(-1, -1), 2);
-    if(processedIsDisplay)
-    {
-        cv::Mat tempworking = closed.clone();
-        if(tempworking.size().width < 800)
-            cv::pyrUp(tempworking, tempworking);
-        imshow("closed", tempworking);
-        cv::waitKey(500);
-    }
-
+    
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(closed, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE); // 改为只检测外轮廓，减少嵌套干扰
     
@@ -611,26 +608,42 @@ bool HeightCore::processImage(const cv::Mat& input,
         // 使用 mask 确保只计算光斑内部的像素，排除背景噪声
         cv::Mat maskedRoi;
         roiImg.copyTo(maskedRoi, roiMask);
-        
-    
-        // 将像素值平方，可以抑制低亮度的噪声，突出高亮度的中心，提高亚像素精度
-        cv::Mat squaredRoi;
-        maskedRoi.convertTo(squaredRoi, CV_32F);
-        cv::pow(squaredRoi, 1, squaredRoi);//使用质心法
+        if(processedIsDisplay)
+        {
+        cv::Mat tempworking = maskedRoi.clone();
+            if(tempworking.size().width < 800)
+                cv::pyrUp(tempworking, tempworking);
+                imshow("maskedRoi", tempworking);
+                cv::waitKey(500);
+        }
 
-        cv::Moments mu = cv::moments(squaredRoi, false); 
+        cv::Point2f finalCenter;
+        float radius = 0.0f;
 
-        if (mu.m00 <= 1e-5) continue; // 避免除零
+        if (contour.size() >= 5 && true) {
+            //cv::RotatedRect rotRect = cv::fitEllipse(contour);
+            cv::RotatedRect rotRect = cv::fitEllipseAMS(contour);
+            // 坐标系转换：contour点是在 roi 坐标系下 -> 转为全局坐标
+            // rotRect.center 是 roi 内坐标
+            finalCenter = cv::Point2f(rotRect.center.x + offset.x, rotRect.center.y + offset.y);
+            radius = (rotRect.size.width + rotRect.size.height) / 4.0f;
+        } 
+        else {
+            cv::Mat squaredRoi;
+            maskedRoi.convertTo(squaredRoi, CV_32F);
+            cv::pow(squaredRoi, 1, squaredRoi);//使用质心法
+            cv::Moments mu = cv::moments(maskedRoi, false); // 使用 maskedRoi (灰度权值)
+            if (mu.m00 <= 1e-5) continue; 
+            
+            // maskedRoi 是 boundingRect 大小
+            float cx = static_cast<float>(mu.m10 / mu.m00);
+            float cy = static_cast<float>(mu.m01 / mu.m00);
+            
+            // cx, cy 是相对于 boundingRect 的
+            finalCenter = cv::Point2f(cx + boundingRect.x + offset.x, cy + boundingRect.y + offset.y);
+            radius = std::sqrt(static_cast<float>(area) / CV_PI);
+        }
 
-        // 计算局部重心坐标
-        float cx = static_cast<float>(mu.m10 / mu.m00);
-        float cy = static_cast<float>(mu.m01 / mu.m00);
-
-        // 转换回全局坐标
-        cv::Point2f finalCenter(cx + boundingRect.x + offset.x, cy + boundingRect.y + offset.y);
-
-        // 估算半径 (使用等效面积圆半径)
-        float radius = std::sqrt(static_cast<float>(area) / CV_PI);
 
         detectedSpots.emplace_back(finalCenter, radius);
     }

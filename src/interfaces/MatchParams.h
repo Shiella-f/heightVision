@@ -11,7 +11,7 @@ enum class MatchCenterType {
 };
 struct MatchParams {
     
-    double  angleRange = 360;      // 匹配角度
+    double  angleRange = 360.0;      // 匹配角度
     float angle_step = 1.0f;      // 角度步长
     size_t     FeaturePointNum = 128;    // 最小特征点数量
 
@@ -25,7 +25,7 @@ struct MatchParams {
 
     // 为防止模板学习时将 ROI 边框当作特征点，支持忽略边界像素宽度（单位：px）
     // 当 >0 时会在模板学习阶段构造掩膜，屏蔽距离四边小于该阈值的区域
-    int borderPadding = 10;
+    int borderPadding = 1;
 };
 
 struct FindMatchParams
@@ -34,7 +34,7 @@ struct FindMatchParams
     bool    useSubPx = true;
     MatchCenterType centerType = MatchCenterType::SceneCenter;
     double  scoreThreshold = 0.7;  // 分数阈值(0~1)，界面显示 70.00
-    bool    useRoi = false;         // true=ROI 内匹配，false=全图匹配
+    bool    useRoi = false;         
     cv::Mat Mask; // 模板掩码
 };
 
@@ -48,7 +48,6 @@ struct MatchResult {
     cv::RotatedRect rotatedRect; // 最小外接矩形框
     cv::Size2f    featureSize{0.f, 0.f}; // 保存特征点最小外接矩形尺寸，便于按真实模板大小绘制
     std::vector<cv::Point2f> transformedFeaturePoints; // 该匹配下所有特征点的全图坐标
-    //std::vector<std::vector<cv::Point2f>> contours; // 变换后的轮廓点
 };
 struct MatchResults
 {

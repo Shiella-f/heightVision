@@ -27,27 +27,30 @@ class MainWindow : public QWidget {
 public:
     MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
-
+    // 获取单例
     static MainWindow* getInstance();
-    static void logAndShowBox(QWidget* parent, const QString& title, const QString& text, QMessageBox::Icon icon = QMessageBox::Information);
+    // 显示消息对话框并记录日志
+    static void logAndShowBox(QWidget* parent, const QString& title, 
+                              const QString& text, 
+                              QMessageBox::Icon icon = QMessageBox::Information);
 
 public slots:
-    void appendLog(const QString& text);
-    void CollectBtnClicked();
-    void MatchBtnClicked();
-    void CalibBtnClicked();
-    void OpenCameraBtnClicked();
-    void updateStatusLabels();
+    void appendLog(const QString& text);// 日志输出
+    void CollectBtnClicked();// 图片采集
+    void MatchBtnClicked();// 模板匹配
+    void CalibBtnClicked();// 相机标定
+    void OpenCameraBtnClicked();// 打开相机
+    void updateStatusLabels();// 状态标签
 
 private:
-    void init();
+    void init();// 初始化界面和变量
     void loadPlugin(); // 加载插件
 
-    void updateCameraFrame();
-    void usbCamera();
+    void updateCameraFrame();// 更新相机帧
+    void usbCamera();// 打开USB相机
     void loadCalibrationData(); // 加载标定数据
     void loadHeightPlugin(); // 加载测高插件
-    void loadCalibPlugin(); // 加载相机标定插件
+    void loadCalibPlugin(); // 加载标定插件
 
 private:
     IMatchWidget* m_matchWidget = nullptr;
@@ -97,8 +100,4 @@ private:
 
     static MainWindow* s_instance;
     static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
-
-
-    QPointF centralPointF;  // 选中图元的中心坐标
-    CopyItems_Move_Rotate_Data m_ItemsMoveRotateData;
 };
