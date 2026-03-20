@@ -149,7 +149,31 @@ void MainWindow::init()
     connect(m_MatchBtn, &QToolButton::clicked, this, &MainWindow::MatchBtnClicked);
     m_OpenCameraBtn = newButton(new QToolButton(this), QStringLiteral("打开相机"));
     connect(m_OpenCameraBtn, &QToolButton::clicked, this, &MainWindow::OpenCameraBtnClicked);
-
+    QToolButton *m_CloseCameraBtn = newButton(new QToolButton(this), QStringLiteral("关闭相机"));
+    connect(m_CloseCameraBtn, &QToolButton::clicked, [this]() {
+        if (cap.isOpened()) {
+            cap.release();
+            appendLog("摄像头已关闭");
+            m_cameraTimer->stop();
+            CamreConnectResultLabel->setText("NO");
+        } else {
+            appendLog("摄像头未打开");
+        }
+    });
+    QLineEdit *focusValueEdit = new QLineEdit(this);
+    focusValueEdit->setPlaceholderText(QStringLiteral("请输入对焦值"));
+    focusValueEdit->setFixedWidth(120);
+    connect(focusValueEdit, &QLineEdit::returnPressed, this, [this, focusValueEdit]() {
+        bool ok;
+        double focusValue = focusValueEdit->text().toDouble(&ok);
+        if (ok) {
+            cap.set(cv::CAP_PROP_AUTOFOCUS, 0); // 关闭自动对焦
+            cap.set(cv::CAP_PROP_FOCUS, focusValue); // 设置对焦值
+            appendLog(QString("设置对焦值: %1").arg(focusValue));
+        } else {
+            appendLog("无效的对焦值输入");
+        }
+    });
     QHBoxLayout* BtnLayout = new QHBoxLayout;
     BtnLayout->setContentsMargins(5, 5, 5, 5);
     BtnLayout->addWidget(m_CameraCalibBtn);
@@ -157,7 +181,9 @@ void MainWindow::init()
     BtnLayout->addWidget(m_CollectBtn);
     BtnLayout->addWidget(m_MatchBtn);
     BtnLayout->addWidget(m_OpenCameraBtn);
+    BtnLayout->addWidget(m_CloseCameraBtn);
     BtnLayout->addWidget(m_MirrorcalibBtn);
+    BtnLayout->addWidget(focusValueEdit);
 
     QWidget* UpWidget = new QWidget(this);
     QHBoxLayout* UpLayout = new QHBoxLayout;
@@ -303,19 +329,53 @@ void MainWindow::appendLog(const QString& text)
 }
 
 void MainWindow::usbCamera()
-{
-    cap.open(1); // 打开默认摄像头
+{   
+    
+    if (cap.isOpened()) {
+        cap.release();
+    }
+    cap.open(1, cv::CAP_DSHOW); // 打开默认摄像头
     if (!cap.isOpened()) {
         m_infoArea->append("无法打开摄像头");
         return;
     }
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
-    m_infoArea->append("USB Camera opened successfully.");
-    bool fpsOk = cap.set(cv::CAP_PROP_FPS, 15);
-    cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
-    cap.set(cv::CAP_PROP_FOCUS, 700);
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 2592);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1944);
+    // cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
+    // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
+//     bool fpsOk = cap.set(cv::CAP_PROP_FPS, 15);
+
+
+// 对焦：先关自动，再设置
+cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
+cap.set(cv::CAP_PROP_FOCUS, 370);
+
+// // 曝光：先关自动曝光，再设置曝光值
+// // 注意：Windows+DSHOW 下 auto exposure 的值很不统一，常见写法是 0.25=manual, 0.75=auto（不保证每台都一样）
+// cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25);
+// cap.set(cv::CAP_PROP_EXPOSURE, -6);   // 很多摄像头曝光范围是负值，需自己试/读回显
+// m_infoArea->append(QString("AUTO_EXPOSURE=%1").arg(cap.get(cv::CAP_PROP_AUTO_EXPOSURE)));
+// m_infoArea->append(QString("EXPOSURE=%1").arg(cap.get(cv::CAP_PROP_EXPOSURE)));
+// // 增益
+// cap.set(cv::CAP_PROP_GAIN, 50);
+
+// // 白平衡（如果你也需要）：
+// cap.set(cv::CAP_PROP_AUTO_WB, 0);
+// cap.set(cv::CAP_PROP_WB_TEMPERATURE, 4500);
+
+// auto logProp = [&](const QString& name, int prop) {
+//     double v = cap.get(prop);
+//     m_infoArea->append(QString("%1 = %2").arg(name).arg(v));
+// };
+
+// logProp("FOCUS", cv::CAP_PROP_FOCUS);
+// logProp("EXPOSURE", cv::CAP_PROP_EXPOSURE);
+// logProp("GAIN", cv::CAP_PROP_GAIN);
+// logProp("FPS", cv::CAP_PROP_FPS);
+
+
     m_cameraTimer = new QTimer(this);
+    m_infoArea->append(QString("FOCUS=%1").arg(cap.get(cv::CAP_PROP_FOCUS)));
     connect(m_cameraTimer, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
     m_cameraTimer->start(66);
 }
@@ -357,6 +417,15 @@ void MainWindow::updateCameraFrame()
                 }
 
             }
+
+            
+            if(m_isTiltCalibLoaded) {
+                cv::warpPerspective(displayedFrame, displayedFrame, m_TiltParams.homography,
+                            m_TiltParams.outputSize,
+                            cv::INTER_LINEAR,
+                            cv::BORDER_CONSTANT, cv::Scalar(0));
+            }
+
 
             // 3. 转换颜色并显示在主界面 (显示去畸变后的图像)
             cv::cvtColor(displayedFrame, displayedFrame, cv::COLOR_BGR2RGB);
@@ -474,30 +543,65 @@ void MainWindow::loadCalibrationData()
     QFile Matrixfile(calibMatrixPath);
     if (!Matrixfile.exists()) {
         m_infoArea->append("9*9振镜标定文件不存在或未选择标定文件");
+    }else{
+        try {
+            cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
+            if (!fs.isOpened()) {
+                m_infoArea->append("无法打开9*9振镜标定文件");
+            }else{
+                fs["HomographyMatrix"] >> HomographyMatrix;
+                fs.release();
+
+                if (HomographyMatrix.empty()) {
+                    m_infoArea->append("9*9振镜标定文件数据无效");
+                    m_is9_9CalibLoadedr = false;
+                } else {
+                    m_is9_9CalibLoadedr = true;
+                    m_infoArea->append("9*9振镜标定数据加载成功！");
+                }
+            }
+        } catch (cv::Exception& e) {
+            m_infoArea->append(QString("加载标定数据异常: %1").arg(e.what()));
+            m_is9_9CalibLoadedr = false;
+        }
+    }
+
+    int ret4 = QMessageBox::question(this,
+                                     "相机校正",
+                                     "是否选择相机校正文件？",
+                                     QMessageBox::Yes | QMessageBox::No,
+                                     QMessageBox::No);
+    QString homographyPath = nullptr;
+    if (ret4 == QMessageBox::Yes) {
+        homographyPath = QFileDialog::getOpenFileName(nullptr, ("选择相机校正文件"), "", ("Images (*.yaml);;All Files (*)"));
+    }
+    QFile homographyfile(homographyPath);
+    if (!homographyfile.exists()) {
+        m_infoArea->append("相机校正文件不存在或未选择标定文件");
         return;
     }
-
-    try {
-        cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
-        if (!fs.isOpened()) {
-            m_infoArea->append("无法打开9*9振镜标定文件");
-            return;
+    try
+    {
+        std::string files_std = homographyPath.toStdString();
+        cv::FileStorage fs(files_std, cv::FileStorage::READ);
+        if (fs.isOpened())
+        {
+            fs["homography"] >> m_TiltParams.homography;
+            int w = 0, h = 0;
+            fs["outputWidth"]  >> w;
+            fs["outputHeight"] >> h;
+            m_TiltParams.outputSize = cv::Size(w, h);
+            std::cout << "[CameraCorrector] Tilt params loaded from " << files_std << "\n";
+            m_isTiltCalibLoaded = true;
         }
-
-        fs["HomographyMatrix"] >> HomographyMatrix;
-        fs.release();
-
-        if (HomographyMatrix.empty()) {
-            m_infoArea->append("9*9振镜标定文件数据无效");
-            m_is9_9CalibLoadedr = false;
-        } else {
-            m_is9_9CalibLoadedr = true;
-            m_infoArea->append("9*9振镜标定数据加载成功！");
-        }
-    } catch (cv::Exception& e) {
-        m_infoArea->append(QString("加载标定数据异常: %1").arg(e.what()));
-        m_is9_9CalibLoadedr = false;
     }
+    catch(const std::exception& e)
+    {
+        m_infoArea->append(QString("加载相机校正数据异常: %1").arg(e.what()));
+        m_isTiltCalibLoaded = false;
+    }
+
+    
 
 }
 
@@ -557,7 +661,12 @@ void MainWindow::MatchBtnClicked()
     {
         m_currentImage = m_imageDisplayWidget->getSourceImageMat();
     }
-    TIGER_BSVISION::qImage2cvImage(m_currentImage, currentMat);
+    if (!TIGER_BSVISION::qImage2cvImage(m_currentImage, currentMat) || currentMat.empty()) {
+        appendLog(QStringLiteral("当前图像转换失败，无法发送到模板匹配窗口"));
+        return;
+    }
+    // qImage2cvImage 输出的是 RGB，而模板窗口按 BGR 显示，需先转回 BGR。
+    cv::cvtColor(currentMat, currentMat, cv::COLOR_RGB2BGR);
     
     if (m_matchWidget) {
         m_matchWidget->setcurrentImage(currentMat);

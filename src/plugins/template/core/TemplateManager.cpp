@@ -11,6 +11,62 @@
 #include <QString>
 
 namespace { // 工具函数
+int calcValidPyramidLevel(const cv::Size& size, int requestedLevel)
+{
+    int level = std::max(0, requestedLevel);
+    int maxLevel = 0;
+    int minSide = std::min(size.width, size.height);
+    // pyrDown 每次尺寸约减半，最小边到 1 前都可继续降采样。
+    while (minSide >= 2) {
+        ++maxLevel;
+        minSide /= 2;
+    }
+    return std::min(level, maxLevel);
+}
+
+cv::Mat pyramidDown(const cv::Mat& image, int level)
+{
+    if (image.empty() || level <= 0) {
+        return image.clone();
+    }
+    cv::Mat current = image.clone();
+    for (int i = 0; i < level; ++i) {
+        if (current.cols < 2 || current.rows < 2) {
+            break;
+        }
+        cv::Mat next;
+        cv::pyrDown(current, next);
+        current = next;
+    }
+    return current;
+}
+
+cv::Rect scaleRectUp(const cv::Rect& rect, float scale, const cv::Size& bounds)
+{
+    if (rect.width <= 0 || rect.height <= 0) {
+        return cv::Rect();
+    }
+    const int x = static_cast<int>(std::round(rect.x * scale));
+    const int y = static_cast<int>(std::round(rect.y * scale));
+    const int w = std::max(1, static_cast<int>(std::round(rect.width * scale)));
+    const int h = std::max(1, static_cast<int>(std::round(rect.height * scale)));
+    cv::Rect up(x, y, w, h);
+    return up & cv::Rect(0, 0, bounds.width, bounds.height);
+}
+
+std::vector<cv::Point2f> scalePointsUp(const std::vector<cv::Point2f>& pts, float scale)
+{
+    if (scale == 1.0f) {
+        return pts;
+    }
+    std::vector<cv::Point2f> out;
+    out.reserve(pts.size());
+    for (const auto& p : pts) {
+        out.emplace_back(p.x * scale, p.y * scale);
+    }
+    return out;
+}
+
 cv::Mat toGrayMat(const cv::Mat& image) 
 {
     if (image.empty()) { 
@@ -121,7 +177,17 @@ bool TemplateManager::learnTemplate(const cv::Mat& src, const cv::Mat& templateM
     }else{
         _type = TIGER_BSVISION::cptSame;
     }
-    bool ok = m_matchEngine->create_shape_model(grayTemplate, templateMask, angleStart, params.angleRange,
+    m_pyramidLevel = calcValidPyramidLevel(grayTemplate.size(), params.compressionLevel);
+    m_pyramidScale = static_cast<float>(1 << m_pyramidLevel);
+
+    cv::Mat engineTemplate = pyramidDown(grayTemplate, m_pyramidLevel);
+    cv::Mat engineMask;
+    if (!templateMask.empty()) {
+        engineMask = pyramidDown(templateMask, m_pyramidLevel);
+        cv::threshold(engineMask, engineMask, 1, 255, cv::THRESH_BINARY);
+    }
+
+    bool ok = m_matchEngine->create_shape_model(engineTemplate, engineMask, angleStart, params.angleRange,
                                                 params.angle_step / 2.0f, params.scale_min, params.scale_max, params.scale_step, 
                                                 params.weakThreshold, params.strongThreshold, params.FeaturePointNum, _type); 
     if (!ok) {
@@ -135,9 +201,11 @@ bool TemplateManager::learnTemplate(const cv::Mat& src, const cv::Mat& templateM
     m_learnParams = params; // 缓存学习时使用的参数
    
     m_valid = true; // 标记已有有效模板
-    m_featurePoints = collectFeaturePoints(m_matchEngine->getTempl(0));
-    cv::RotatedRect rr = cv::minAreaRect(m_featurePoints);
-    m_trainCenter = rr.center; // 默认训练中心为 ROI 几何中心
+    const std::vector<cv::Point2f> engineFeaturePoints = collectFeaturePoints(m_matchEngine->getTempl(0));
+    m_featurePoints = scalePointsUp(engineFeaturePoints, m_pyramidScale);
+    cv::RotatedRect rr = cv::minAreaRect(engineFeaturePoints.empty() ? std::vector<cv::Point2f>{cv::Point2f(0.f, 0.f)} : engineFeaturePoints);
+    m_engineTrainCenter = rr.center;
+    m_trainCenter = cv::Point2f(m_engineTrainCenter.x * m_pyramidScale, m_engineTrainCenter.y * m_pyramidScale); // 对外保持原图坐标
     m_featureBounds = computeFeatureBounds(m_featurePoints);
     if (m_featureBounds.width <= 0.f || m_featureBounds.height <= 0.f) {
         m_featureBounds = cv::Rect2f(0.f, 0.f,
@@ -188,12 +256,20 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
         }
     }
 
+    const int level = calcValidPyramidLevel(graySearch.size(), m_pyramidLevel);
+    const float scaleToOriginal = static_cast<float>(1 << level);
+    cv::Mat searchForEngine = pyramidDown(graySearch, level);
+    if (!maskParam.empty()) {
+        maskParam = pyramidDown(maskParam, level);
+        cv::threshold(maskParam, maskParam, 1, 255, cv::THRESH_BINARY);
+    }
+
     cv::Mat MatchImg;
     if (params.useRoi && !maskParam.empty()) {
-        cv::bitwise_and(graySearch, graySearch, MatchImg, maskParam); // 使用掩码提取目标区域
+        cv::bitwise_and(searchForEngine, searchForEngine, MatchImg, maskParam); // 使用掩码提取目标区域
         maskParam.release(); //  第三方匹配库在启用掩膜时会做额外 ROI 处理，这里直接清空掩膜，改为依赖零化后的图像避免再次触发 ROI 越界
     } else {
-        MatchImg = graySearch.clone();
+        MatchImg = searchForEngine.clone();
     }
 
     std::vector<TIGER_BSVISION::Match> matches;
@@ -215,28 +291,36 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
 
     cv::Point offset(0, 0); // 坐标偏移量为零,直接在全图上匹配
     results.reserve(std::min(static_cast<size_t>(maxCount), matches.size()));
-    cv::Point2f Matchcenter;
-    Matchcenter = m_trainCenter;
+    cv::Point2f matchCenter = m_engineTrainCenter;
     for (const auto& match : matches) {
-        cv::Rect rect = buildResultRect(match, offset, imageSize); // 将匹配框转换到整图坐标
+        cv::Rect rect = buildResultRect(match, offset, MatchImg.size()); // 先在引擎尺度下得到结果
+        rect = scaleRectUp(rect, scaleToOriginal, imageSize); // 再映射回原图尺度
         if (rect.width <= 0 || rect.height <= 0) {
             continue;
         }
         MatchResult item; // 构建界面需要的结果结构
-        if (match.pts.empty()) {continue;}
-
-        item.transformedFeaturePoints = match.pts; 
-
+        item.transformedFeaturePoints = scalePointsUp(match.pts, scaleToOriginal); 
 
         item.score = normalizeScore(match.similarity); // 将相似度归一化到 0~1 以呼应 m_matchScoreSpinBox 的展示逻辑
         item.angle = match.angle;
         item.scale = match.scale;
 
-        item.center = match.transPt(cv::Point2f((Matchcenter))); // 计算中心点坐标
+        item.center = match.transPt(matchCenter); // 计算中心点坐标
+        item.center.x *= scaleToOriginal;
+        item.center.y *= scaleToOriginal;
+        // 使用匹配引擎返回的宽高框作为 ROI，避免稀疏特征点导致结果框偏小。
         item.Roiarea = rect = boundingRect(item.transformedFeaturePoints);
-        cv::RotatedRect rr = cv::minAreaRect(item.transformedFeaturePoints);
-        item.featureSize = rr.size; 
-        item.rotatedRect = rr;
+        if (!item.transformedFeaturePoints.empty()) {
+            cv::RotatedRect rr = cv::minAreaRect(item.transformedFeaturePoints);
+            item.featureSize = rr.size;
+            item.rotatedRect = rr;
+        } else {
+            item.featureSize = cv::Size2f(static_cast<float>(rect.width), static_cast<float>(rect.height));
+            item.rotatedRect = cv::RotatedRect(
+                cv::Point2f(rect.x + rect.width * 0.5f, rect.y + rect.height * 0.5f),
+                item.featureSize,
+                static_cast<float>(match.angle));
+        }
         /*
         // if (!match.pts.empty()) {
         //     item.transformedFeaturePoints = match.pts; 

@@ -6,7 +6,9 @@ public:
     virtual ~IImageProcess() = default;
 
     virtual void loadCalibrationData() = 0; // 加载标定数据
-    virtual cv::Mat CalibImage(cv::Mat &originalImage) = 0; // 图像校准
+    //virtual void loadWarPerspectiveData() = 0; // 加载单应性矩阵数据
+    virtual cv::Mat CalibImage(cv::Mat &originalImage) = 0; // 去畸变处理，输入原图，输出处理后的图像
+    //virtual cv::Mat WarPerspective(cv::Mat& originalImage) = 0; // 校正图像，输入单应性矩阵，输出校正后的图像
     virtual bool isCalibrationLoaded() const = 0;
 
 };

@@ -14,6 +14,7 @@ struct MatchParams {
     double  angleRange = 360.0;      // 匹配角度
     float angle_step = 1.0f;      // 角度步长
     size_t     FeaturePointNum = 128;    // 最小特征点数量
+    int     compressionLevel = 0;    // 压缩等级
 
     float  weakThreshold = 60.0f; //模板对比度
     float  strongThreshold = 30.0f; //匹配对比度

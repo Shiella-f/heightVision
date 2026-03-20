@@ -4,7 +4,8 @@
 #include "../../common/Widget/CustomTitleBar.h"
 
 CalibWidget::CalibWidget(QWidget *parent)
-    : QWidget(parent), m_cameraCalibWidget(nullptr), m_mirrorCalibWidget(nullptr), m_tabWidget(nullptr)
+    : QWidget(parent), m_cameraCalibWidget(nullptr), m_mirrorCalibWidget(nullptr), m_tabWidget(nullptr),
+        m_cameraWarpectiveWidget(nullptr)
 {
     init();
     this->setWindowTitle(QStringLiteral("")); 
@@ -17,6 +18,7 @@ CalibWidget::CalibWidget(QWidget *parent)
 CalibWidget::~CalibWidget()
 {
     delete m_cameraCalibWidget;
+    delete m_cameraWarpectiveWidget;
     delete m_mirrorCalibWidget;
     delete m_tabWidget;
 }
@@ -24,9 +26,11 @@ CalibWidget::~CalibWidget()
 void CalibWidget::init()
 {
     m_cameraCalibWidget = new CameraCalibWidget(this);
+    m_cameraWarpectiveWidget = new CameraWarpectiveWidget(this);
     m_mirrorCalibWidget = new MirrorCalibWidget(this);
     m_tabWidget = new QTabWidget(this);
     m_tabWidget->addTab(m_cameraCalibWidget, "相机标定");
+    m_tabWidget->addTab(m_cameraWarpectiveWidget, "相机透视校正");
     m_tabWidget->addTab(m_mirrorCalibWidget, "振镜校正");
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);

@@ -41,4 +41,5 @@ private:
     QDoubleSpinBox* m_scaleStepSpinBox; // 缩放步长
     QSpinBox* m_weakThresholdSpinBox; // 模板对比度滑块
     QSpinBox* m_strongThresholdSpinBox; // 匹配对比度滑块
+    QSpinBox* m_compressionLevelSpinBox; // 压缩等级滑块
 };

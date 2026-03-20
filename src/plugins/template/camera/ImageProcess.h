@@ -15,7 +15,9 @@ public:
     
     // 实现接口虚函数
     void loadCalibrationData() override; // 加载标定数据
+    //void loadWarPerspectiveData() override; // 加载单应性矩阵数据
     cv::Mat CalibImage(cv::Mat &originalImage) override; // 注意：也是槽函数
+    //cv::Mat WarPerspective(cv::Mat& originalImage) override; // 校正图像，输入单应性矩阵，输出校正后的图像
     bool isCalibrationLoaded() const { return m_isCameraCalibLoaded || m_is3_3CalibLoaded; }
 
 public slots:
@@ -26,6 +28,8 @@ private:
     cv::Mat m_distCoeffs;
     cv::Mat m_map1, m_map2;
     bool m_isCameraCalibLoaded = false;
+    bool m_isWarPerspectiveLoaded = false;
+    cv::Mat WarPerspectiveMatrix; // 存储单应性矩阵
     cv::Size m_calibImageSize;
     QRect roi_3x3 = QRect(0, 0, 0, 0); // 3x3 ROI，默认中心区域
 

@@ -11,6 +11,9 @@
 #include <QLabel>
 
 #include "interfaces/orionvisionglobal.h"
+#include "camerapara.h"
+#include "CameraWorker.h"
+#include <QThread>
 
 class QToolButton;
 class QGraphicsView;
@@ -20,6 +23,9 @@ class QTextEdit;
 class QLabel;
 class QPluginLoader;
 class CustomTitleBar;
+class QLineEdit;
+class QCheckBox;
+class QSlider;
 
 class MainWindow : public QWidget {
     Q_OBJECT
@@ -33,6 +39,7 @@ public:
     static void logAndShowBox(QWidget* parent, const QString& title, 
                               const QString& text, 
                               QMessageBox::Icon icon = QMessageBox::Information);
+    static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
 
 public slots:
     void appendLog(const QString& text);// 日志输出
@@ -41,13 +48,16 @@ public slots:
     void CalibBtnClicked();// 相机标定
     void OpenCameraBtnClicked();// 打开相机
     void updateStatusLabels();// 状态标签
+    
+    // Camera worker slot
+//    void onFrameReady(const cv::Mat& frame); 
 
 private:
     void init();// 初始化界面和变量
     void loadPlugin(); // 加载插件
 
-    void updateCameraFrame();// 更新相机帧
     void usbCamera();// 打开USB相机
+    void updateCameraFrame(); // 旧的定时器回调，暂时保留声明以防cpp未完全清理，但应为空
     void loadCalibrationData(); // 加载标定数据
     void loadHeightPlugin(); // 加载测高插件
     void loadCalibPlugin(); // 加载标定插件
@@ -62,6 +72,9 @@ private:
 
     QWidget* m_CalibMainWindow = nullptr;
     CalibInterface* m_CalibPluginFactory = nullptr;
+    // QLineEdit *m_focusLineEdit;
+    // QSlider* m_focusSlider;
+    // QCheckBox* m_autoFocusCheckBox;
 
     QGroupBox* m_stateGroupBox;
     QToolButton* m_CameraCalibBtn;
@@ -70,6 +83,7 @@ private:
     QToolButton* m_CollectBtn;
     QToolButton* m_OpenCameraBtn;
     QToolButton* m_MirrorcalibBtn;
+    QToolButton* setCameraparaBtn;
 
     ImageSceneBase* m_imageDisplayWidget;
     QTextEdit* m_infoArea;
@@ -99,5 +113,12 @@ private:
     bool m_is3_3CalibLoaded = false;
 
     static MainWindow* s_instance;
-    static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
+    // static void messageHandler moved to public as per previous structure or consistent with implementation
+
+    struct TiltParams {
+    cv::Mat homography;     ///< 3×3 透视变换矩阵 H
+    cv::Size outputSize;    ///< 校正后输出图像尺寸
+    };
+    TiltParams m_TiltParams; // 存储倾斜校正参数
+    bool m_isTiltCalibLoaded = false; // 标志是否加载了倾斜校正参数
 };

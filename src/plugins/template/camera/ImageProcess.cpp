@@ -195,3 +195,24 @@ void ImageProcess::loadCalibrationData()
     }
 
 }
+
+// cv::Mat ImageProcess::WarPerspective(cv::Mat& originalImage)
+// {
+//     if (WarPerspectiveMatrix.empty()) {
+//         qInfo().noquote() << "单应性矩阵为空，无法进行透视变换";
+//         return cv::Mat();
+//     }
+//     if (m_isCameraCalibLoaded || m_is3_3CalibLoaded) {
+//         cv::Mat calibImg = originalImage;
+//             if (calibImg.empty()) {
+//             qInfo().noquote() << "校准图像为空，无法进行透视变换";
+//             return cv::Mat();
+//         }
+//         cv::Mat warpedImg;
+//         cv::warpPerspective(calibImg, warpedImg, WarPerspectiveMatrix, calibImg.size());
+//         return warpedImg;
+//     } else {
+//         qInfo().noquote() << "标定数据未加载，无法进行透视变换";
+//         return cv::Mat();
+//     }
+// }

@@ -14,7 +14,7 @@ set(CMAKE_AUTOUIC ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/src/plugins/template/tools")
 
-find_package(Qt5 COMPONENTS Widgets Concurrent Multimedia REQUIRED)
+find_package(Qt5 COMPONENTS Widgets Concurrent Multimedia MultimediaWidgets REQUIRED)
 find_package(BSCV REQUIRED)
 
 add_subdirectory(src/common)
@@ -47,7 +47,11 @@ target_include_directories(qt_vscode_app PRIVATE
 )
 
 
-target_link_libraries(qt_vscode_app PRIVATE Qt5::Widgets Qt5::Concurrent Qt5::Multimedia ${BSCV_LIBRARIES} GuiCommon HeightMeaturePlugin)
+target_link_libraries(qt_vscode_app PRIVATE Qt5::Widgets 
+    Qt5::Concurrent Qt5::Multimedia Qt5::MultimediaWidgets
+    ${BSCV_LIBRARIES} GuiCommon 
+    HeightMeaturePlugin
+)
 
 
 

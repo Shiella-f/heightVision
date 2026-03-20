@@ -20,6 +20,12 @@ set(PLUGIN_SOURCES
     CameraCalib/Widget/CameraCalibWidget.h
     CameraCalib/Scene/CameraCalibScene.cpp
     CameraCalib/Scene/CameraCalibScene.h
+    CameraWarperspect/core/Warpective.cpp
+    CameraWarperspect/core/Warpective.h
+    CameraWarperspect/Widget/CameraWarpectiveWidget.cpp
+    CameraWarperspect/Widget/CameraWarpectiveWidget.h
+    CameraWarperspect/Scene/CameraWarpectiveScene.cpp
+    CameraWarperspect/Scene/CameraWarpectiveScene.h
 )
 
 set_source_files_properties(

@@ -30,8 +30,11 @@ private:
     cv::Mat      m_template;
     MatchParams  m_learnParams;
     cv::Point2f  m_trainCenter{0.f, 0.f};
+    cv::Point2f  m_engineTrainCenter{0.f, 0.f};
     std::vector<cv::Point2f> m_featurePoints;
     cv::Rect2f   m_featureBounds{0.f, 0.f, 0.f, 0.f}; // 记录模板特征点的最小外接矩形，便于后续输出真实尺寸
+    int          m_pyramidLevel = 0;
+    float        m_pyramidScale = 1.0f;
     bool         m_valid = false;
     std::unique_ptr<TIGER_BSVISION::ITemplMatch> m_matchEngine;
 };

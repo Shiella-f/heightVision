@@ -51,6 +51,14 @@ void ParaWidget::init()
     FeatureNumLayout->addWidget(LearnFeaturelLabel);
     FeatureNumLayout->addWidget(m_learnFeatureSpinBox);
 
+    QLabel *CompressionlevelLabel = newLabel(new QLabel, QStringLiteral("压缩等级:"));
+    m_compressionLevelSpinBox = new QSpinBox(this);
+    m_compressionLevelSpinBox->setRange(0, 5);
+    m_compressionLevelSpinBox->setValue(0);
+    QHBoxLayout* CompressionLayout = newHorizontalLayout(new QHBoxLayout);
+    CompressionLayout->addWidget(CompressionlevelLabel);
+    CompressionLayout->addWidget(m_compressionLevelSpinBox);
+
     QLabel* MatchAngleLabel = newLabel(new QLabel, QStringLiteral("匹配角度:"));//
     m_matchAngleSpinBox = new QDoubleSpinBox(this);
     m_matchAngleSpinBox->setRange(0.0, 360.0);
@@ -144,6 +152,7 @@ void ParaWidget::init()
     CreatParasLayout->addLayout(maxScaleLayout);
     CreatParasLayout->addLayout(scaleStepLayout);
     CreatParasLayout->addLayout(FeatureNumLayout);
+    CreatParasLayout->addLayout(CompressionLayout);
     CreatParasLayout->addLayout(checkBoxLayout);
     CreatParasLayout->addLayout(m_weakThresholdLayout);
     CreatParasLayout->addLayout(m_strongThresholdLayout);
@@ -201,6 +210,7 @@ MatchParams ParaWidget::buildMatchParams()
     params.scale_min = m_minScaleSpinBox ? m_minScaleSpinBox->value() : 0.9f;
     params.scale_max = m_maxScaleSpinBox ? m_maxScaleSpinBox->value() : 1.1f;
     params.scale_step = m_scaleStepSpinBox ? m_scaleStepSpinBox->value() : 0.02f;
+    params.compressionLevel = m_compressionLevelSpinBox ? m_compressionLevelSpinBox->value() : 0;
     return params;
 }
 

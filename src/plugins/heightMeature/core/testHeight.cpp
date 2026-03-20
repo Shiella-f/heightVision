@@ -528,7 +528,6 @@ bool HeightCore::processImage(const cv::Mat& input,
     cv::Mat gray;
     cv::cvtColor(filtered(roi), gray, cv::COLOR_BGR2GRAY);
     cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
-
     cv::Mat thresh;
     // 如果阈值设置不合理(<=0)，启用 Otsu 自动阈值
     // 激光光斑通常对比度极高，固定阈值通常更稳定，Otsu作备选
@@ -620,7 +619,7 @@ bool HeightCore::processImage(const cv::Mat& input,
         cv::Point2f finalCenter;
         float radius = 0.0f;
 
-        if (contour.size() >= 5 && true) {
+        if (contour.size() >= 5 && false) {
             //cv::RotatedRect rotRect = cv::fitEllipse(contour);
             cv::RotatedRect rotRect = cv::fitEllipseAMS(contour);
             // 坐标系转换：contour点是在 roi 坐标系下 -> 转为全局坐标

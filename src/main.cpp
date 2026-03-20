@@ -20,9 +20,9 @@ int main(int argc, char *argv[])
         qWarning() << "样式表加载失败：请确认已编译 resources.qrc，或将 dark_style.qss 放到宿主程序目录的 res 目录下";
     }
 
-    // QFont font("Microsoft YaHei");
-    // font.setPointSize(9);
-    // a.setFont(font);
+    QFont font("Microsoft YaHei");
+    font.setPointSize(9);
+    a.setFont(font);
     MainWindow w;
     w.show();
     return a.exec();
