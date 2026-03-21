@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <array>
 #include <vector>
 #include "MatchParams.h"
 #include <bscv/templmatch.h>
@@ -35,6 +36,9 @@ private:
     cv::Rect2f   m_featureBounds{0.f, 0.f, 0.f, 0.f}; // 记录模板特征点的最小外接矩形，便于后续输出真实尺寸
     int          m_pyramidLevel = 0;
     float        m_pyramidScale = 1.0f;
+    // 轮询金字塔 0~3：每个槽位对应一个请求层级（0/1/2/3），effectiveLevel 可能因图像过小被截断。
+    std::array<std::unique_ptr<TIGER_BSVISION::ITemplMatch>, 4> m_matchEngines;
+    std::array<cv::Point2f, 4> m_engineTrainCenters{{cv::Point2f(0.f, 0.f), cv::Point2f(0.f, 0.f), cv::Point2f(0.f, 0.f), cv::Point2f(0.f, 0.f)}};
+    std::array<int, 4> m_effectiveLevels{{0, 0, 0, 0}};
     bool         m_valid = false;
-    std::unique_ptr<TIGER_BSVISION::ITemplMatch> m_matchEngine;
 };

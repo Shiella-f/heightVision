@@ -58,11 +58,11 @@ matchWidget::matchWidget(QWidget* parent)
     if (!qssLoaded) {
         qWarning() << "样式表加载失败：请确认已编译 resources.qrc，或将 dark_style.qss 放到宿主程序目录的 res 目录下";
     }
-    // m_initParam.canvasSize = QSize(459.866, 459.866);
-    // m_initParam.unitedRect = QRect(100.06, 168.38, 51.096, 25.548);
-    // QRectF rect = QRectF(m_initParam.unitedRect);
-    // m_initParam.combinedPath.addRect(rect);
-    // m_initParam.img = QImage("C:\\Users\\m1760\\Desktop\\bcadhicv141\\res\\image\\camera_capture_20260107_101657.png");
+    m_initParam.canvasSize = QSize(459.866, 459.866);
+    m_initParam.unitedRect = QRect(100.06, 168.38, 51.096, 25.548);
+    QRectF rect = QRectF(m_initParam.unitedRect);
+    m_initParam.combinedPath.addRect(rect);
+    m_initParam.img = QImage("C:\\Users\\m1760\\Desktop\\heightVision\\res\\image\\1.png");
     m_ImageProcess = new ImageProcess();
     this->setWindowTitle(QStringLiteral("")); 
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint);
@@ -153,7 +153,12 @@ void matchWidget::init()
     connect(m_drawpathBtn, &QToolButton::clicked, this, &matchWidget::DrawPathBtnClicked);
 
     m_confirmDrawBtn = newButton(new QToolButton(this), QStringLiteral("一键排版"));
-    connect(m_confirmDrawBtn, &QToolButton::clicked, [this]() { if(confirmDrawBtnClicked()) emit sendDrawPath(); });
+    connect(m_confirmDrawBtn, &QToolButton::clicked, [this]() { 
+
+        if(confirmDrawBtnClicked()) {
+            emit sendDrawPath();
+        }
+    });
 
     m_shapeModeCombo = new QComboBox(this);
     m_shapeModeCombo->addItem(QStringLiteral("矩形"));

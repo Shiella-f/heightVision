@@ -53,8 +53,8 @@ void ParaWidget::init()
 
     QLabel *CompressionlevelLabel = newLabel(new QLabel, QStringLiteral("压缩等级:"));
     m_compressionLevelSpinBox = new QSpinBox(this);
-    m_compressionLevelSpinBox->setRange(0, 5);
-    m_compressionLevelSpinBox->setValue(0);
+    m_compressionLevelSpinBox->setRange(0, 4);
+    m_compressionLevelSpinBox->setValue(2);
     QHBoxLayout* CompressionLayout = newHorizontalLayout(new QHBoxLayout);
     CompressionLayout->addWidget(CompressionlevelLabel);
     CompressionLayout->addWidget(m_compressionLevelSpinBox);
@@ -163,7 +163,7 @@ void ParaWidget::init()
     QLabel* MaxNumberLabel = newLabel(new QLabel, QStringLiteral("最大数量:")); // 最大数量标签
     m_maxNumberSpinBox = new QSpinBox(this);
     m_maxNumberSpinBox->setRange(1, 100);
-    m_maxNumberSpinBox->setValue(10);
+    m_maxNumberSpinBox->setValue(5);
     QHBoxLayout* numberLayout = newHorizontalLayout(new QHBoxLayout);
     numberLayout->addWidget(MaxNumberLabel);
     numberLayout->addWidget(m_maxNumberSpinBox);
@@ -179,7 +179,7 @@ void ParaWidget::init()
     QLabel* MatchScoreLabel = newLabel(new QLabel, QStringLiteral("匹配分数:"));
     m_matchScoreSpinBox = new QDoubleSpinBox(this);
     m_matchScoreSpinBox->setRange(1.0, 100.0);
-    m_matchScoreSpinBox->setValue(70.0);
+    m_matchScoreSpinBox->setValue(60.0);
     QHBoxLayout* scoreLayout = newHorizontalLayout(new QHBoxLayout);
     scoreLayout->addWidget(MatchScoreLabel);
     scoreLayout->addWidget(m_matchScoreSpinBox);
@@ -219,7 +219,7 @@ FindMatchParams ParaWidget::buildFindMatchParams(bool useRoi)
     FindMatchParams params;
     params.maxCount = m_maxNumberSpinBox ? m_maxNumberSpinBox->value() : 1;
     params.useSubPx = m_subPixelCheckBox && m_subPixelCheckBox->isChecked();
-    params.scoreThreshold =  m_matchScoreSpinBox ? m_matchScoreSpinBox->value() : 70.0;
+    params.scoreThreshold =  m_matchScoreSpinBox ? m_matchScoreSpinBox->value() : 60.0;
     const bool useTrainCenter = m_matchCenterComboBox && m_matchCenterComboBox->currentIndex() == 0;
     params.centerType = useTrainCenter ? MatchCenterType::SceneCenter : MatchCenterType::TrainCenter;
     params.useRoi = useRoi;
