@@ -16,8 +16,8 @@ struct MatchParams {
     size_t     FeaturePointNum = 128;    // 最小特征点数量
     int     compressionLevel = 2;    // 压缩等级
 
-    float  weakThreshold = 60.0f; //模板对比度
-    float  strongThreshold = 30.0f; //匹配对比度
+    float  weakThreshold = 30.0f; //模板对比度
+    float  strongThreshold = 60.0f; //匹配对比度
     bool    ignorePolarity = false;
 
     float scale_min = 0.95f;
@@ -34,7 +34,7 @@ struct FindMatchParams
     int     maxCount = 5;// 最大数量
     bool    useSubPx = true;
     MatchCenterType centerType = MatchCenterType::SceneCenter;
-    double  scoreThreshold = 0.6;  // 分数阈值(0~1)，界面显示 70.00
+    double  scoreThreshold = 60.00;  // 分数阈值(0~100)，界面显示 60.00
     bool    useRoi = false;         
     cv::Mat Mask; // 模板掩码
 };

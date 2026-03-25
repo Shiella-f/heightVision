@@ -7,7 +7,7 @@
 #include <sstream>
 #include <QFileInfo>
 #include <QStatusBar>
-
+#include <QLineEdit>
 MirrorCalibWidget::MirrorCalibWidget(QWidget *parent) : baseWidget(parent), m_core(new MirrorCalib) 
 {
     init();
@@ -18,11 +18,11 @@ MirrorCalibWidget::MirrorCalibWidget(QWidget *parent) : baseWidget(parent), m_co
     this->sizePolicy().setHorizontalStretch(0);
     this->sizePolicy().setVerticalStretch(0);
     this->resize(1200, 800);
-
 }
 
 MirrorCalibWidget::~MirrorCalibWidget() {
     delete m_core;
+    delete corrector;
 }
 
 void MirrorCalibWidget::init()
@@ -52,6 +52,32 @@ void MirrorCalibWidget::init()
     controlWidget->setContentsMargins(0, 0, 0, 0);
     controlWidget->setLayout(controlLayout);
     //QGroupBox* snapGroup = new QGroupBox("1. 图像采集", this);
+
+    QLineEdit* CanvasXLabel = new QLineEdit(this);
+    CanvasXLabel->setText("110");
+    CanvasXLabel->setPlaceholderText(QStringLiteral("画布宽度"));
+    QLineEdit* CanvasYLabel = new QLineEdit(this);
+    CanvasYLabel->setText("110");
+    CanvasYLabel->setPlaceholderText(QStringLiteral("画布高度"));
+    connect(CanvasXLabel, &QLineEdit::textChanged, this, [this](const QString& text){
+        bool ok;
+        float value = text.toFloat(&ok);
+        if(ok) {
+            m_Canvassize.x = value;
+        }
+    });
+    connect(CanvasYLabel, &QLineEdit::textChanged, this, [this](const QString& text){
+        bool ok;
+        float value = text.toFloat(&ok);
+        if(ok) {
+            m_Canvassize.y = value;
+        }
+    });
+    QHBoxLayout* CanvasLayout = new QHBoxLayout();
+    CanvasLayout->setContentsMargins(0, 0, 0, 0);
+    CanvasLayout->addWidget(CanvasXLabel);
+    CanvasLayout->addWidget(CanvasYLabel);
+    controlLayout->addLayout(CanvasLayout);
     QHBoxLayout* snapLayout = new QHBoxLayout();
     snapLayout->setContentsMargins(0, 0, 0, 0);
     m_Snap3x3btn = newButton(new QToolButton(this), QStringLiteral("3x3采集图像"));
@@ -141,7 +167,7 @@ void MirrorCalibWidget::init()
     statusWidget->setWindowFlags(Qt::FramelessWindowHint);
 
     QLabel* PtsLabel = new QLabel(QStringLiteral("坐标("), statusWidget);
-    QLabel* PtsValueLabel = new QLabel(QStringLiteral("  ,  "), statusWidget);
+    PtsValueLabel = new QLabel(QStringLiteral("  ,  "), statusWidget);
     QLabel* PtsUnitLabel = new QLabel(QStringLiteral(")"), statusWidget);
 
     PtsLayout->addWidget(PtsLabel);
@@ -150,8 +176,8 @@ void MirrorCalibWidget::init()
     
     statusBar->addWidget(statusWidget);
 
-    connect(m_MirrorScene, &MirrorScene::currentPointChanged, this, [PtsValueLabel](const QPointF& pt){
-        PtsValueLabel->setText(QString::number(pt.x()) + " , " + QString::number(pt.y()));
+    connect(m_MirrorScene, &MirrorScene::currentPointChanged, this, [this](const QPointF& pt){
+        updatePoint(pt);
     });
 
     QHBoxLayout* contentLayout = new QHBoxLayout;
@@ -295,6 +321,11 @@ void MirrorCalibWidget::onCalibrate9x9() {
         logMessage("请先采集9x9图像");
         return;
     }
+
+    if(!corrector) {
+        corrector = new CameraCorrector();
+    }
+    
     cv::Mat workImg;
     workImg.create(m_currentImage.size(), m_currentImage.type());
     if(m_roiArea.width() > 0 && m_roiArea.height() > 0) {
@@ -308,7 +339,7 @@ void MirrorCalibWidget::onCalibrate9x9() {
     }
     cv::Size patternSize(9, 9);
     bool found = m_core->findMarkerPoints(workImg, patternSize, m_9x9Points);
-    
+    std::vector<cv::Point2f> new_9x9Points;
     if (found) {
         m_MirrorScene->clearOverlays();
         if(m_9x9Points.size() != 81) {
@@ -330,7 +361,17 @@ void MirrorCalibWidget::onCalibrate9x9() {
         for (const auto& pt : m_9x9Points) {
             m_MirrorScene->addOverlayPoint(QPointF(pt.x, pt.y), QPen(Qt::blue), pointsize);
         }
+        if(m_Canvassize.x >= 0 || m_Canvassize.y >= 0) {
+            cv::Point2f srccenter = m_9x9Points[(m_9x9Points.size() -1) / 2]; // 9x9中心点索引
+            cv::Point2f dstcenter = cv::Point2f(m_Canvassize.x/2, m_Canvassize.y/2); // 物理坐标中心
+            corrector->setCoordinateOriginByPair(srccenter,dstcenter); // 根据实际情况调整坐标偏移
+        }
         
+        std::vector<cv::Point2f> new_9x9Points;
+        for(auto &pt : m_9x9Points) {
+            cv::Point2f correctedPt = corrector->pixelToMm(pt);
+            new_9x9Points.push_back(correctedPt);
+        }
         std::vector<cv::Point2f> preset9_9Points;
         float spacing = 15.0f;
         int width = m_currentImage.cols;
@@ -343,15 +384,16 @@ void MirrorCalibWidget::onCalibrate9x9() {
             }
         }
         
-        m_resultTable->setRowCount(m_9x9Points.size());
-        for (size_t i = 0; i < m_9x9Points.size(); ++i) {
+        //m_resultTable->setRowCount(m_9x9Points.size());
+        m_resultTable->setRowCount(new_9x9Points.size());
+        for (size_t i = 0; i < new_9x9Points.size(); ++i) {
             m_resultTable->setItem(i, 0, new QTableWidgetItem(QString::number(i)));
             if (i < preset9_9Points.size()) {
                 m_resultTable->setItem(i, 1, new QTableWidgetItem(QString::number(preset9_9Points[i].x, 'f', 2)));
                 m_resultTable->setItem(i, 2, new QTableWidgetItem(QString::number(preset9_9Points[i].y, 'f', 2)));
             }
-            m_resultTable->setItem(i, 3, new QTableWidgetItem(QString::number(m_9x9Points[i].x, 'f', 2)));
-            m_resultTable->setItem(i, 4, new QTableWidgetItem(QString::number(m_9x9Points[i].y, 'f', 2)));
+            m_resultTable->setItem(i, 3, new QTableWidgetItem(QString::number(new_9x9Points[i].x, 'f', 2)));
+            m_resultTable->setItem(i, 4, new QTableWidgetItem(QString::number(new_9x9Points[i].y, 'f', 2)));
         }
         
         cv::Mat homographyMatrix;
@@ -542,3 +584,11 @@ void MirrorCalibWidget::onSaveCalibData()
     }
 }
 
+void MirrorCalibWidget::updatePoint(const QPointF& point) {
+    if(!corrector) {
+        corrector = new CameraCorrector();
+    }
+    corrector->load("C:\\Users\\m1760\\Desktop\\newProject\\images\\test1\\150homography.yml");
+    cv::Point2f correctedPt = corrector->pixelToMm(cv::Point2f(point.x(), point.y()));
+    PtsValueLabel->setText(QString::number(correctedPt.x) + " , " + QString::number(correctedPt.y));
+}

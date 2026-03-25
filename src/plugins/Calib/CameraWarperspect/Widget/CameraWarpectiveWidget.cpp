@@ -14,14 +14,63 @@
 #include <fstream>
 #include <iomanip>
 #include <QDebug>
-#include <QToolTip>
 #include <opencv2/opencv.hpp>
+#include <QStandardPaths>
+#include <QDir>
+#include <QtGlobal>
+#include "../../../../common/tools/bscvTool.h"
 
 using namespace std;
 using namespace cv;
 
+namespace {
+
+QtMessageHandler g_prevQtHandler = nullptr;
+QTextEdit* g_logTarget = nullptr;
+
+void cameraWarpMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
+{
+    // Keep original behavior so logs still appear in console/output window.
+    if (g_prevQtHandler)
+        g_prevQtHandler(type, context, msg);
+
+    if (!g_logTarget)
+        return;
+
+    if (!msg.contains("[CameraCorrector]"))
+        return;
+
+    const QString line = msg.trimmed();
+    if (line.isEmpty())
+        return;
+
+    if (QThread::currentThread() == g_logTarget->thread())
+        g_logTarget->append(line);
+    else
+        QMetaObject::invokeMethod(g_logTarget, "append", Qt::QueuedConnection, Q_ARG(QString, line));
+}
+
+class ScopedQtLogCapture
+{
+public:
+    explicit ScopedQtLogCapture(QTextEdit* target)
+    {
+        g_logTarget = target;
+        g_prevQtHandler = qInstallMessageHandler(cameraWarpMessageHandler);
+    }
+
+    ~ScopedQtLogCapture()
+    {
+        qInstallMessageHandler(g_prevQtHandler);
+        g_prevQtHandler = nullptr;
+        g_logTarget = nullptr;
+    }
+};
+
+} // namespace
+
 CameraWarpectiveWidget::CameraWarpectiveWidget(QWidget *parent)
-    : baseWidget(parent), m_scene(nullptr), m_view(nullptr)
+    : baseWidget(parent), m_scene(nullptr), m_view(nullptr), m_CameraCorrector(nullptr)
 {
     init();
     this->setWindowTitle(QStringLiteral("")); 
@@ -29,8 +78,6 @@ CameraWarpectiveWidget::CameraWarpectiveWidget(QWidget *parent)
     this->sizePolicy().setHorizontalStretch(0);
     this->sizePolicy().setVerticalStretch(0);
     this->resize(1200, 800);
-    connectAll();
-    m_CameraCorrector = CameraCorrector();
     cv::Mat m = cv::Mat::zeros(3,3,CV_8UC1);
 }
 
@@ -42,49 +89,35 @@ void CameraWarpectiveWidget::init()
 {
     QGridLayout* contentLayout = new QGridLayout();
     QWidget* LeftWidget = new QWidget(contentLayout->widget());
-    m_OpenImages = new QPushButton("打开图片", LeftWidget);
-    m_SwitchSHowBtn = new QPushButton("切换显示", LeftWidget);
     QGridLayout* layoutSettings = new QGridLayout(LeftWidget); // 改为网格布局，使左侧变窄
-    layoutSettings->addWidget(m_OpenImages, 0, 0, 1, 2);
-    layoutSettings->addWidget(m_SwitchSHowBtn, 0, 2, 1, 2);
-    
-    QRegExp regex("^[0-9]+(\\.[0-9]+)?,[0-9]+(\\.[0-9]+)?$");
 
-    for(int i = 0; i < 4; ++i) {
-        LactionLabel[i] = new QLabel(LeftWidget);
-        if(i == 0) LactionLabel[i]->setText("左上角:");
-        else if(i == 1) LactionLabel[i]->setText("右上角:");
-        else if(i == 2) LactionLabel[i]->setText("右下角:");
-        else if(i == 3) LactionLabel[i]->setText("左下角:");
-        m_ImgPointLd[i] = new QLineEdit(LeftWidget);
-        m_ObjPointLd[i] = new QLineEdit(LeftWidget);
-        m_ImgPointLd[i]->setPlaceholderText("请输入图片坐标");
-        m_ObjPointLd[i]->setPlaceholderText("请输入实际坐标");
-        m_ObjPointLd[i]->setToolTip("示例：123.45,678.90");
-        m_ImgPointLd[i]->setToolTip("示例：123.45,678.90");
-        QRegExpValidator *validator = new QRegExpValidator(regex, m_ImgPointLd[i]);
-        m_ImgPointLd[i]->setValidator(validator);
-        QRegExpValidator *validator2 = new QRegExpValidator(regex, m_ObjPointLd[i]);
-        m_ObjPointLd[i]->setValidator(validator2);
-        QHBoxLayout* pointLayout = new QHBoxLayout();
-        pointLayout->addWidget(LactionLabel[i]);
-        pointLayout->addWidget(m_ImgPointLd[i]);
-        pointLayout->addWidget(m_ObjPointLd[i]);
-        layoutSettings->addLayout(pointLayout, i+1, 0, 1, 4); // 占满4列
-    }
-    m_selectPointsBtn = new QPushButton("选择点", LeftWidget);
-    m_EnsurePoint = new QPushButton("确定坐标", LeftWidget);
-    m_StartBtn = new QPushButton("开始标定", LeftWidget);
-    m_SaveBtn = new QPushButton("保存结果", LeftWidget);
-     // 占满2列
-    layoutSettings->addWidget(m_selectPointsBtn, 5, 0, 1, 2); // 占满2列
-    layoutSettings->addWidget(m_EnsurePoint, 5, 2, 1, 2); // 占满2列
+    layoutSettings->addWidget(new QLabel("角点列数:"), 0, 0);
+    m_editBoardWidth = new QLineEdit("12"); // 默认值设为 12
+    layoutSettings->addWidget(m_editBoardWidth, 0, 1);
 
-    layoutSettings->addWidget(m_StartBtn, 6, 0, 1, 2); // 占满2列
-     // 占满2列
-    layoutSettings->addWidget(m_SaveBtn, 6, 2, 1, 2); // 占满4列
-    layoutSettings->setContentsMargins(0, 0, 0, 0);
-    layoutSettings->setRowStretch(7, 1); // 最后一行占满剩余空间
+    layoutSettings->addWidget(new QLabel("角点行数:"), 1, 0);
+    m_editBoardHeight = new QLineEdit("9"); // 默认值设为 9
+    layoutSettings->addWidget(m_editBoardHeight, 1, 1);
+
+    layoutSettings->addWidget(new QLabel("方格尺寸:"), 2, 0);
+    m_editSquareSize = new QLineEdit("6.0"); // 默认值设为 6.0
+    m_editSquareSize->setToolTip("(mm)");
+    layoutSettings->addWidget(m_editSquareSize, 2, 1);
+
+    layoutSettings->addWidget(new QLabel("图片实际宽度:"), 3, 0);
+    m_editOutWidth = new QLineEdit("110"); // 默认值设为 2.5
+    m_editOutWidth->setToolTip("输出图片宽度(mm)");
+    layoutSettings->addWidget(m_editOutWidth, 3, 1);
+
+    layoutSettings->addWidget(new QLabel("图片实际高度:"), 4, 0);
+    m_editOutHeight = new QLineEdit("110"); // 默认为空
+    m_editOutHeight->setToolTip("输出图片高度(mm)");
+    layoutSettings->addWidget(m_editOutHeight, 4, 1);
+
+    layoutSettings->addWidget(new QLabel("输出分辨率:"), 5, 0);
+    m_editpixPerMm = new QLineEdit("10"); // 默认为空
+    m_editpixPerMm->setToolTip("输出图片高度(mm)");
+    layoutSettings->addWidget(m_editpixPerMm, 5, 1);
 
     // --- 中间图像显示 ---
     QWidget* imageDisplayWidget = new QWidget(this);
@@ -105,6 +138,28 @@ void CameraWarpectiveWidget::init()
 
     QVBoxLayout* layoutImages = new QVBoxLayout();
 
+    QHBoxLayout* layoutImgBtns = new QHBoxLayout();
+    m_btnOpenImages = new QPushButton("打开图片", this);
+    m_btnChangeShow = new QPushButton("切换显示", this);
+    layoutImgBtns->addWidget(m_btnOpenImages);
+    layoutImgBtns->addWidget(m_btnChangeShow);
+    layoutImages->addLayout(layoutImgBtns);
+
+    QHBoxLayout* btnlayout = new QHBoxLayout();
+    m_btnCalibrate = new QPushButton("开始变换", this);
+    btnlayout->addWidget(m_btnCalibrate);
+
+    // 保存按钮
+    m_btnSave = new QPushButton("保存结果", this);
+    btnlayout->addWidget(m_btnSave);
+    layoutImages->addLayout(btnlayout);
+    QPushButton* test = new QPushButton("测试结果", this);
+    btnlayout->addWidget(test);
+    connect(test, &QPushButton::clicked, this, &CameraWarpectiveWidget::onTestClicked);
+
+    layoutSettings->addLayout(layoutImages, 6, 0, 1, 2);
+    layoutSettings->addWidget(test, 7, 0, 1, 2);
+    layoutSettings->setRowStretch(8, 1); // 最后一行占满剩余空间
     QGroupBox* groupResult = new QGroupBox("标定结果", this);
     QVBoxLayout* layoutResult = new QVBoxLayout(groupResult);
     m_textResult = new QTextEdit(this);
@@ -119,137 +174,161 @@ void CameraWarpectiveWidget::init()
     mainLayout->setContentsMargins(5, 0, 5, 0);
     mainLayout->setSpacing(0);
     mainLayout->addLayout(contentLayout);
+
+    
+    connect(m_btnOpenImages, &QPushButton::clicked, this, &CameraWarpectiveWidget::onOpenImagesClicked);
+    connect(m_btnChangeShow, &QPushButton::clicked, this, &CameraWarpectiveWidget::onChangeShowClicked);
+    connect(m_btnCalibrate, &QPushButton::clicked, this, &CameraWarpectiveWidget::onCalibrateClicked);
+    connect(m_btnSave, &QPushButton::clicked, this, &CameraWarpectiveWidget::onSaveClicked);
+
 }
 
-void CameraWarpectiveWidget::connectAll(){
-    connect(m_OpenImages,&QPushButton::clicked,this,&CameraWarpectiveWidget::onOpenImagesClicked);
-    connect(m_selectPointsBtn,&QPushButton::clicked,this,&CameraWarpectiveWidget::onSelectPointsClicked);
-    connect(m_EnsurePoint,&QPushButton::clicked,this,&CameraWarpectiveWidget::onEnsurePointClicked);
-    connect(m_SaveBtn,&QPushButton::clicked,this,&CameraWarpectiveWidget::onSaveClicked);
-    connect(m_scene, &WarpectiveScene::currentPointChanged, this, &CameraWarpectiveWidget::SelectPoints);
-    connect(m_StartBtn, &QPushButton::clicked, this, &CameraWarpectiveWidget::onStartCalibClicked);
-    connect(m_SwitchSHowBtn, &QPushButton::clicked, this, &CameraWarpectiveWidget::onSwitchShowClicked);
-}
-
-void CameraWarpectiveWidget::onOpenImagesClicked()
+bool CameraWarpectiveWidget::onOpenImagesClicked()
 {
-    QString files = QFileDialog::getOpenFileName(
-        this,
-        "选择标定图片",
-        "", // 默认路径
-        "Images (*.png *.jpg *.bmp *.jpeg)" // 文件过滤器
-    );
-    if (files.isEmpty()) return;
-    m_currentImage = cv::imread(files.toLocal8Bit().constData());
-    if (m_currentImage.empty()) return;
-    cv::Mat rgb;
-    cv::cvtColor(m_currentImage, rgb, cv::COLOR_BGR2RGB);
-    QImage img(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
+    QString fileName = QFileDialog::getOpenFileName(this, "选择图像", "", "Images (*.png *.jpg *.bmp)");
+    if (fileName.isEmpty()) return false;
+    std::string fileStr = fileName.toLocal8Bit().constData();
+    m_currentImage = cv::imread(fileStr);
+    QImage img;
+    TIGER_BSVISION::cvImage2qImage(img, m_currentImage);
     m_scene->setOriginalPixmap(QPixmap::fromImage(img));
     m_scene->resetImage();
-    m_showOriginal = true;
+    isCurrentImageShow = true;
+    return true;
+}
+
+void CameraWarpectiveWidget::onChangeShowClicked()
+{
+    if(isCurrentImageShow) {
+        if (m_rectifiedImage.empty())return;
+        QImage img;
+        TIGER_BSVISION::cvImage2qImage(img, m_rectifiedImage);
+        m_scene->setOriginalPixmap(QPixmap::fromImage(img));
+        m_scene->resetImage();
+        isCurrentImageShow = false;
+    } else {
+        if (m_currentImage.empty()) return;
+        QImage img;
+        TIGER_BSVISION::cvImage2qImage(img, m_currentImage);
+        m_scene->setOriginalPixmap(QPixmap::fromImage(img));
+        m_scene->resetImage();
+        isCurrentImageShow = true;
+    }
+}
+
+void CameraWarpectiveWidget::onCalibrateClicked()
+{
+    bool ok;
+    int gridCols = m_editBoardWidth->text().toInt(&ok);
+    if (!ok || gridCols <= 0) {
+        m_textResult->append("请输入有效的角点列数");
+        return;
+    }
+    
+    int gridRows = m_editBoardHeight->text().toInt(&ok);
+    if (!ok || gridRows <= 0) {
+        m_textResult->append("请输入有效的角点行数");
+        return;
+    }
+
+    float squareMm = m_editSquareSize->text().toFloat(&ok);
+    if (!ok || squareMm <= 0) {
+        m_textResult->append("请输入有效的方格尺寸");
+        return;
+    }
+
+    int outWidth = m_editOutWidth->text().toInt(&ok);
+    if (!ok || outWidth <= 0) {
+        m_textResult->append("请输入有效的输出图片宽度");
+        return;
+    }
+
+    int outHeight = m_editOutHeight->text().toInt(&ok);
+    if (!ok || outHeight <= 0) {
+        m_textResult->append("请输入有效的输出图片高度");
+        return;
+    }
+
+    float pixPerMm = m_editpixPerMm->text().toFloat(&ok);
+    if (!ok || pixPerMm <= 0) {
+        m_textResult->append("请输入有效的输出分辨率");
+        return;
+    }
+    if(m_currentImage.empty()) {
+        m_textResult->append("请先打开一张图片");
+        return;
+    }
+
+    m_config.gridCols = gridCols;
+    m_config.gridRows = gridRows;
+    m_config.squareMm = squareMm;
+    m_config.outWidthMm = outWidth;
+    m_config.outHeightMm = outHeight;
+    m_config.pixPerMm = pixPerMm;
+
+    if(m_CameraCorrector == nullptr) {
+        m_CameraCorrector = new CameraCorrector(m_config);
+    } else {
+        delete m_CameraCorrector;
+        m_CameraCorrector = new CameraCorrector(m_config);
+    }
+
+    m_textResult->append("正在变换中，请稍候...");
+    // 强制刷新界面，显示提示信息，防止界面卡死
+    QApplication::processEvents(); 
+
+    try {
+        ScopedQtLogCapture capture(m_textResult);
+
+        if(!m_CameraCorrector->computeMap(m_currentImage)){
+            cerr << "Error: Failed to compute homography map" << endl;
+            m_textResult->append("Error: Failed to compute homography map");
+            return;
+        }
+        isCalibrated = true;
+        if(!m_CameraCorrector->warp(m_currentImage, m_rectifiedImage)){
+            cerr << "Error: Failed to warp image" << endl;
+            m_textResult->append("Error: Failed to warp image");
+            return;
+        }
+        onChangeShowClicked(); // 切换显示校正后的图像
+    } catch (const std::exception& e) {
+        cerr << "Error during rectification: " << e.what() << endl;
+        m_textResult->append(QString("Error during rectification: %1").arg(e.what()));
+    }
+
 }
 
 void CameraWarpectiveWidget::onSaveClicked()
 {
-    QString savePath = QFileDialog::getSaveFileName(this, "保存标定结果", "tilt_params.yaml", "OpenCV XML (*.xml);;OpenCV YAML (*.yaml);;Text File (*.txt)");
-    if(savePath.isEmpty()) return;
-    std::string path = savePath.toStdString();
-    m_CameraCorrector.saveTiltParams(path);
-}
-
-void CameraWarpectiveWidget::onSelectPointsClicked(){
-    if(!m_scene) return;
-    m_textResult->append("请在图像上选择4个点，顺序为：左上、右上、右下、左下");
-    m_scene->setSelectingPoint(true);
-}
-
-void CameraWarpectiveWidget::onEnsurePointClicked(){
-    
-    for(int i = 0; i < 4; ++i){
-        m_ImgPoints[i].setX(0.0);
-        m_ImgPoints[i].setY(0.0);
-        m_ObjPoints[i].setX(0.0);
-        m_ObjPoints[i].setY(0.0);
-        if(m_ImgPointLd[i]->text().isEmpty()){
-            QMessageBox::warning(this, "输入错误", "请确保所有坐标输入框都已填写。");
-            return;
-        }
-        QStringList imgCoords = m_ImgPointLd[i]->text().split(",");
-        if (imgCoords.size() == 2) {
-            m_ImgPoints[i].setX(imgCoords[0].toDouble());
-            m_ImgPoints[i].setY(imgCoords[1].toDouble());
-        } else {
-            QMessageBox::warning(this, "输入错误", QString("第 %1 个点的坐标格式不正确。").arg(i + 1));
-            return;
-        }
+    if(!isCalibrated) {
+        m_textResult->append("请先完成标定");
+        return;
     }
+    QString desktopPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    QDir().mkpath(desktopPath);
+    QString defaultName = QDir(desktopPath).filePath("homography.yml");
+    QString fileName = QFileDialog::getSaveFileName(this, tr("结果"), defaultName,
+                                                    tr("YAML 文件 (*.yml)"));
+    if (fileName.isEmpty()) return;
+    std::string fileStr = fileName.toStdString();
+    m_CameraCorrector->save(fileStr);
 }
 
-void CameraWarpectiveWidget::SelectPoints(QPointF point){
-    if(!m_scene) return;
-    int Order = m_scene->selectedPointOrder(point);
-    if(Order >= 0 && Order < 4){
-        m_ImgPointLd[Order]->setText(QString("%1,%2").arg(point.x()).arg(point.y()));
-        m_textResult->append(QString("已选择第 %1 个点，坐标为：(%2, %3)").arg(Order + 1).arg(point.x()).arg(point.y()));
+void CameraWarpectiveWidget::onTestClicked()
+{
+    if(!onOpenImagesClicked()) { // 重新打开原图
+        m_textResult->append("未打开图像");
+        return;
     }
-}
-
-void CameraWarpectiveWidget::onStartCalibClicked(){
-    std::vector<cv::Point2f> imgPts, objPts;
-    for(int i = 0; i < 4; ++i){
-        imgPts.emplace_back(m_ImgPoints[i].x(), m_ImgPoints[i].y());
-        objPts.emplace_back(m_ObjPoints[i].x(), m_ObjPoints[i].y());
-    }
-    float srcW = cv::norm(imgPts[1] - imgPts[0]);  // ≈ 708 像素
-    float srcH = cv::norm(imgPts[3] - imgPts[0]);  // ≈ 672 像素
-    int outW = (int)srcW;
-    int outH = (int)srcH;
-
-    std::vector<cv::Point2f> dstPts = {
-    {       0.f,        0.f},
-    {outW - 1.f,        0.f},
-    {outW - 1.f, outH - 1.f},
-    {       0.f, outH - 1.f}
-    };
-    m_CameraCorrector.setTiltCorrectionByPoints(imgPts,dstPts,cv::Size(outW, outH));
-    TiltParams tempParams = m_CameraCorrector.getTiltParams();
-    QString resultText = QString("标定完成！\n标定结果: \n%1 , %2 , %3\n%4 , %5 , %6\n%7 , %8 , %9\n输出图像尺寸: %10x%11")
-        .arg(tempParams.homography.at<double>(0, 0), 0, 'f', 4) // H[0][0]
-        .arg(tempParams.homography.at<double>(0, 1), 0, 'f', 4) // H[0][1]
-        .arg(tempParams.homography.at<double>(0, 2), 0, 'f', 4) // H[0][2]
-        .arg(tempParams.homography.at<double>(1, 0), 0, 'f', 4) // H[1][0]
-        .arg(tempParams.homography.at<double>(1, 1), 0, 'f', 4) // H[1][1]
-        .arg(tempParams.homography.at<double>(1, 2), 0, 'f', 4) // H[1][2]
-        .arg(tempParams.homography.at<double>(2, 0), 0, 'f', 4) // H[2][0]
-        .arg(tempParams.homography.at<double>(2, 1), 0, 'f', 4) // H[2][1]
-        .arg(tempParams.homography.at<double>(2, 2), 0, 'f', 4) // H[2][2]
-        .arg(tempParams.outputSize.width)
-        .arg(tempParams.outputSize.height);
-    m_textResult->append(resultText);
-    m_CameraCorrector.correctTilt(m_currentImage, m_resultImage);
-    onSwitchShowClicked(); // 切换显示结果图
-
-}
-
-void CameraWarpectiveWidget::onSwitchShowClicked(){
-    if(!m_scene) return;
-    if(m_showOriginal){
-        if(m_resultImage.empty()) return;
-        cv::Mat rgb;
-        cv::cvtColor(m_resultImage, rgb, cv::COLOR_BGR2RGB);
-        QImage img(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-        m_scene->setOriginalPixmap(QPixmap::fromImage(img));
-        m_scene->resetImage();
-        m_showOriginal = false;
+    if(m_CameraCorrector == nullptr) {
+        m_CameraCorrector = new CameraCorrector(m_config);
     } else {
-        if(m_currentImage.empty()) return;
-        cv::Mat rgb;
-        cv::cvtColor(m_currentImage, rgb, cv::COLOR_BGR2RGB);
-        QImage img(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-        m_scene->setOriginalPixmap(QPixmap::fromImage(img));
-        m_scene->resetImage();
-        m_showOriginal = true;
+        delete m_CameraCorrector;
+        m_CameraCorrector = new CameraCorrector(m_config);
     }
+    QString fileName = QFileDialog::getOpenFileName(this, "选择结果", "", "yml (*.yml) *.XML");
+    m_CameraCorrector->load(fileName.toStdString()); // 从文件加载单应矩阵
+    m_CameraCorrector->warp(m_currentImage, m_rectifiedImage); // 重新变换图像
+    onChangeShowClicked(); // 切换显示校正后的图像
 }
-

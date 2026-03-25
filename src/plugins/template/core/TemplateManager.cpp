@@ -407,6 +407,10 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
                 cv::RotatedRect rr = cv::minAreaRect(item.transformedFeaturePoints);
                 item.featureSize = rr.size;
                 item.rotatedRect = rr;
+                if (params.centerType == MatchCenterType::SceneCenter) {
+                    // 透视残差下优先使用匹配后点集的几何中心，避免单一 scale/angle 中心偏移。
+                    item.center = rr.center;
+                }
             } else {
                 item.featureSize = cv::Size2f(static_cast<float>(rect.width), static_cast<float>(rect.height));
                 item.rotatedRect = cv::RotatedRect(

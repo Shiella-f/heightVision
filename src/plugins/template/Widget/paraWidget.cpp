@@ -126,7 +126,7 @@ void ParaWidget::init()
     
     m_weakThresholdSpinBox = new QSpinBox(this);
     m_weakThresholdSpinBox->setRange(5, 160);
-    m_weakThresholdSpinBox->setValue(60);
+    m_weakThresholdSpinBox->setValue(30);
 
     QLabel* weakThresholdLabel = newLabel(new QLabel, QStringLiteral("模板对比度:"));
     QHBoxLayout* m_weakThresholdLayout = newHorizontalLayout(new QHBoxLayout);
@@ -137,7 +137,7 @@ void ParaWidget::init()
 
     m_strongThresholdSpinBox = new QSpinBox(this);
     m_strongThresholdSpinBox->setRange(1, 160);
-    m_strongThresholdSpinBox->setValue(30);
+    m_strongThresholdSpinBox->setValue(60);
 
     QLabel* strongThresholdLabel = newLabel(new QLabel, QStringLiteral("匹配对比度:"));
     QHBoxLayout* m_strongThresholdLayout = newHorizontalLayout(new QHBoxLayout);
@@ -178,7 +178,7 @@ void ParaWidget::init()
 
     QLabel* MatchScoreLabel = newLabel(new QLabel, QStringLiteral("匹配分数:"));
     m_matchScoreSpinBox = new QDoubleSpinBox(this);
-    m_matchScoreSpinBox->setRange(1.0, 100.0);
+    m_matchScoreSpinBox->setRange(0.0, 100.0);
     m_matchScoreSpinBox->setValue(60.0);
     QHBoxLayout* scoreLayout = newHorizontalLayout(new QHBoxLayout);
     scoreLayout->addWidget(MatchScoreLabel);

@@ -14,6 +14,7 @@
 #include "camerapara.h"
 #include "CameraWorker.h"
 #include <QThread>
+#include "template/camera/ImageProcess.h"
 
 class QToolButton;
 class QGraphicsView;
@@ -66,6 +67,7 @@ private:
     IMatchWidget* m_matchWidget = nullptr;
     QPluginLoader* m_MatchpluginLoader = nullptr;
     IMatchPluginFactory* m_matchPluginFactory = nullptr;
+    IImageProcess*   imageProcessor = nullptr;
 
     QWidget* m_heightMainWindow = nullptr;
     HeightPluginInterface* m_heightPluginFactory = nullptr;

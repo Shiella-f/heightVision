@@ -341,38 +341,8 @@ void MainWindow::usbCamera()
     }
     cap.set(cv::CAP_PROP_FRAME_WIDTH, 2592);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1944);
-    // cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
-//     bool fpsOk = cap.set(cv::CAP_PROP_FPS, 15);
-
-
-// 对焦：先关自动，再设置
-cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
-cap.set(cv::CAP_PROP_FOCUS, 370);
-
-// // 曝光：先关自动曝光，再设置曝光值
-// // 注意：Windows+DSHOW 下 auto exposure 的值很不统一，常见写法是 0.25=manual, 0.75=auto（不保证每台都一样）
-// cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25);
-// cap.set(cv::CAP_PROP_EXPOSURE, -6);   // 很多摄像头曝光范围是负值，需自己试/读回显
-// m_infoArea->append(QString("AUTO_EXPOSURE=%1").arg(cap.get(cv::CAP_PROP_AUTO_EXPOSURE)));
-// m_infoArea->append(QString("EXPOSURE=%1").arg(cap.get(cv::CAP_PROP_EXPOSURE)));
-// // 增益
-// cap.set(cv::CAP_PROP_GAIN, 50);
-
-// // 白平衡（如果你也需要）：
-// cap.set(cv::CAP_PROP_AUTO_WB, 0);
-// cap.set(cv::CAP_PROP_WB_TEMPERATURE, 4500);
-
-// auto logProp = [&](const QString& name, int prop) {
-//     double v = cap.get(prop);
-//     m_infoArea->append(QString("%1 = %2").arg(name).arg(v));
-// };
-
-// logProp("FOCUS", cv::CAP_PROP_FOCUS);
-// logProp("EXPOSURE", cv::CAP_PROP_EXPOSURE);
-// logProp("GAIN", cv::CAP_PROP_GAIN);
-// logProp("FPS", cv::CAP_PROP_FPS);
-
+    cap.set(cv::CAP_PROP_AUTOFOCUS, 0);
+    cap.set(cv::CAP_PROP_FOCUS, 370);
 
     m_cameraTimer = new QTimer(this);
     m_infoArea->append(QString("FOCUS=%1").arg(cap.get(cv::CAP_PROP_FOCUS)));
@@ -396,36 +366,13 @@ void MainWindow::updateCameraFrame()
             // 2. 如果已加载标定数据，进行去畸变
             cv::Mat displayedFrame = frame;
             if (m_isCameraCalibLoaded) {
-                // 如果图像尺寸改变，需要重新初始化映射表
-                if (frame.size() != m_calibImageSize) {
-                    m_calibImageSize = frame.size();
-                    // 计算新的相机矩阵，alpha=0 裁剪黑边，alpha=1 保留所有像素
-                    cv::Mat newCameraMatrix = cv::getOptimalNewCameraMatrix(m_cameraMatrix, m_distCoeffs, m_calibImageSize, 1, m_calibImageSize, 0);
-                    cv::initUndistortRectifyMap(m_cameraMatrix, m_distCoeffs, cv::Mat(), newCameraMatrix, m_calibImageSize, CV_16SC2, m_map1, m_map2);
-                }
-                
-                cv::Mat undistortedFrame;
-                cv::remap(frame, undistortedFrame, m_map1, m_map2, cv::INTER_LINEAR);
-                if(roi_3x3.width() > 0 && roi_3x3.height() > 0 &&
-                   roi_3x3.x() >= 0 && roi_3x3.y() >= 0 &&
-                   roi_3x3.x() + roi_3x3.width() <= undistortedFrame.cols &&
-                   roi_3x3.y() + roi_3x3.height() <= undistortedFrame.rows) 
-                {
-                    displayedFrame = undistortedFrame( cv::Rect(roi_3x3.x(), roi_3x3.y(), roi_3x3.width(), roi_3x3.height()) ).clone();
-                } else {
-                    displayedFrame = undistortedFrame;
-                }
 
+                displayedFrame = imageProcessor->CalibImage(frame);
             }
-
             
             if(m_isTiltCalibLoaded) {
-                cv::warpPerspective(displayedFrame, displayedFrame, m_TiltParams.homography,
-                            m_TiltParams.outputSize,
-                            cv::INTER_LINEAR,
-                            cv::BORDER_CONSTANT, cv::Scalar(0));
+                displayedFrame = imageProcessor->WarPerspective(displayedFrame);
             }
-
 
             // 3. 转换颜色并显示在主界面 (显示去畸变后的图像)
             cv::cvtColor(displayedFrame, displayedFrame, cv::COLOR_BGR2RGB);
@@ -446,163 +393,21 @@ void MainWindow::updateCameraFrame()
 
 void MainWindow::loadCalibrationData()
 {
-    int ret1 = QMessageBox::question(this,
-                                     "相机标定",
-                                     "是否选择相机标定文件？",
-                                     QMessageBox::Yes | QMessageBox::No,
-                                     QMessageBox::No);
-    QString calibPath = nullptr;
-    if (ret1 == QMessageBox::Yes) {
-        calibPath = QFileDialog::getOpenFileName(nullptr, ("选择相机标定文件"), "", ("Images (*.xml);;All Files (*)"));
-    }
-    QFile file(calibPath);
-    if (!file.exists()) {
-        m_infoArea->append("相机标定文件不存在或未选择标定文件");
-    }
-
-    try {
-        cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
-        if (!fs.isOpened()) {
-            m_infoArea->append("无法打开相机标定文件");
-        }
-
-        fs["camera_matrix"] >> m_cameraMatrix;
-        fs["distortion_coefficients"] >> m_distCoeffs;
-        fs.release();
-
-        if (m_cameraMatrix.empty() || m_distCoeffs.empty()) {
-            m_infoArea->append("相机标定文件数据无效");
-            m_isCameraCalibLoaded = false;
+    QString appPath = QCoreApplication::applicationDirPath();
+    QString pluginPath = QDir(appPath).filePath("TemplateMatchPlugin.dll");
+    QLibrary* pluginLib = new QLibrary(pluginPath); 
+    if (pluginLib->load()){
+        CreateImageProcessFunc createInstance = (CreateImageProcessFunc)pluginLib->resolve("CreateImageProcessInstance");
+        if (createInstance) {
+            imageProcessor = createInstance(); 
+            qDebug() << "成功创建图像处理实例";
         } else {
-            m_isCameraCalibLoaded = true;
-            m_infoArea->append("相机标定数据加载成功！");
-        }
-    } catch (cv::Exception& e) {
-        m_infoArea->append(QString("加载标定数据异常: %1").arg(e.what()));
-        m_isCameraCalibLoaded = false;
-    }
-
-
-    int ret2 = QMessageBox::question(this,
-                                     "振镜标定",
-                                     "是否选择3*3振镜标定文件(ROI)？",
-                                     QMessageBox::Yes | QMessageBox::No,
-                                     QMessageBox::No);
-    QString calibPath2;
-    if (ret2 == QMessageBox::Yes) {
-        calibPath2 = QFileDialog::getOpenFileName(nullptr, ("选择3*3振镜标定文件(ROI)"), "", ("Text Files (*.txt);;All Files (*)"));
-    }
-    
-    if (!calibPath2.isEmpty()) {
-        QFile roiFile(calibPath2);
-        if (!roiFile.exists() || !roiFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_infoArea->append("3*3振镜标定文件不存在或无法打开");
-        } else {
-            QTextStream in(&roiFile);
-            int x = 0, y = 0, w = 0, h = 0;
-            bool xFound = false, yFound = false, wFound = false, hFound = false;
-
-            while (!in.atEnd()) {
-                QString line = in.readLine();
-                if (line.startsWith("X=")) {
-                    x = line.mid(2).toInt();
-                    xFound = true;
-                } else if (line.startsWith("Y=")) {
-                    y = line.mid(2).toInt();
-                    yFound = true;
-                } else if (line.startsWith("Width=")) {
-                    w = line.mid(6).toInt();
-                    wFound = true;
-                } else if (line.startsWith("Height=")) {
-                    h = line.mid(7).toInt();
-                    hFound = true;
-                }
-            }
-            roiFile.close();
-
-            if (xFound && yFound && wFound && hFound) {
-                roi_3x3 = QRect(x, y, w, h);
-                m_infoArea->append(QString("3*3振镜ROI加载成功: X=%1, Y=%2, W=%3, H=%4").arg(x).arg(y).arg(w).arg(h));
-                m_is3_3CalibLoaded = true;
-            } else {
-                m_infoArea->append("3*3振镜标定文件格式错误，未找到完整的ROI信息");
-                m_is3_3CalibLoaded = false;
-            }
+            qDebug() << "无法在 DLL 中找到 CreateImageProcessInstance 函数";
         }
     }
-
-    int ret3 = QMessageBox::question(this,
-                                     "9*9振镜标定",
-                                     "是否选择9*9振镜标定文件？",
-                                     QMessageBox::Yes | QMessageBox::No,
-                                     QMessageBox::No);
-    QString calibMatrixPath = nullptr;
-    if (ret3 == QMessageBox::Yes) {
-        calibMatrixPath = QFileDialog::getOpenFileName(nullptr, ("选择9*9振镜标定文件"), "", ("Images (*.xml);;All Files (*)"));
-    }
-    QFile Matrixfile(calibMatrixPath);
-    if (!Matrixfile.exists()) {
-        m_infoArea->append("9*9振镜标定文件不存在或未选择标定文件");
-    }else{
-        try {
-            cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
-            if (!fs.isOpened()) {
-                m_infoArea->append("无法打开9*9振镜标定文件");
-            }else{
-                fs["HomographyMatrix"] >> HomographyMatrix;
-                fs.release();
-
-                if (HomographyMatrix.empty()) {
-                    m_infoArea->append("9*9振镜标定文件数据无效");
-                    m_is9_9CalibLoadedr = false;
-                } else {
-                    m_is9_9CalibLoadedr = true;
-                    m_infoArea->append("9*9振镜标定数据加载成功！");
-                }
-            }
-        } catch (cv::Exception& e) {
-            m_infoArea->append(QString("加载标定数据异常: %1").arg(e.what()));
-            m_is9_9CalibLoadedr = false;
-        }
-    }
-
-    int ret4 = QMessageBox::question(this,
-                                     "相机校正",
-                                     "是否选择相机校正文件？",
-                                     QMessageBox::Yes | QMessageBox::No,
-                                     QMessageBox::No);
-    QString homographyPath = nullptr;
-    if (ret4 == QMessageBox::Yes) {
-        homographyPath = QFileDialog::getOpenFileName(nullptr, ("选择相机校正文件"), "", ("Images (*.yaml);;All Files (*)"));
-    }
-    QFile homographyfile(homographyPath);
-    if (!homographyfile.exists()) {
-        m_infoArea->append("相机校正文件不存在或未选择标定文件");
-        return;
-    }
-    try
-    {
-        std::string files_std = homographyPath.toStdString();
-        cv::FileStorage fs(files_std, cv::FileStorage::READ);
-        if (fs.isOpened())
-        {
-            fs["homography"] >> m_TiltParams.homography;
-            int w = 0, h = 0;
-            fs["outputWidth"]  >> w;
-            fs["outputHeight"] >> h;
-            m_TiltParams.outputSize = cv::Size(w, h);
-            std::cout << "[CameraCorrector] Tilt params loaded from " << files_std << "\n";
-            m_isTiltCalibLoaded = true;
-        }
-    }
-    catch(const std::exception& e)
-    {
-        m_infoArea->append(QString("加载相机校正数据异常: %1").arg(e.what()));
-        m_isTiltCalibLoaded = false;
-    }
-
-    
-
+    imageProcessor->loadCalibrationData();
+    m_isCameraCalibLoaded = imageProcessor->isCalibrationLoaded();
+    m_isTiltCalibLoaded = imageProcessor->m_isTiltLoaded();
 }
 
 void MainWindow::CollectBtnClicked()
@@ -657,10 +462,7 @@ void MainWindow::MatchBtnClicked()
     }
 
     cv::Mat currentMat;
-    if(m_currentImage.isNull())
-    {
-        m_currentImage = m_imageDisplayWidget->getSourceImageMat();
-    }
+    m_currentImage = m_imageDisplayWidget->getSourceImageMat();
     if (!TIGER_BSVISION::qImage2cvImage(m_currentImage, currentMat) || currentMat.empty()) {
         appendLog(QStringLiteral("当前图像转换失败，无法发送到模板匹配窗口"));
         return;

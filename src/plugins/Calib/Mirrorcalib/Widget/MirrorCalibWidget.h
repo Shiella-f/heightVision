@@ -11,6 +11,7 @@
 #include "Mirrorcalib/Core/MirrorCalib.h"
 #include "../Scene/MirrorScene.h"
 #include "../common/Widget/baseWidget.h"
+#include "../../CameraWarperspect/Core/WArpective.h"
 
 class MirrorCalibWidget : public baseWidget {
     Q_OBJECT
@@ -44,6 +45,7 @@ private:
     QToolButton* m_ConfirmSizebtn;
     QToolButton* m_savedatebtn;
     QToolButton* m_clearRoibtn;
+    QLabel* PtsValueLabel;
 
     QCheckBox* m_setRoibox;
     
@@ -55,4 +57,8 @@ private:
     std::vector<cv::Point2f> m_9x9Points;
 
     QRectF m_roiArea = QRectF();  // ROI区域
+    CameraCorrector *corrector;
+    cv::Point2f m_Canvassize; // 当前坐标点
+
+    void updatePoint(const QPointF& point);
 };

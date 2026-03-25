@@ -69,7 +69,6 @@ cv::Mat ImageProcess::CalibImage(cv::Mat &originalImage)
 
 void ImageProcess::loadCalibrationData()
 {
-
     int ret1 = QMessageBox::question(nullptr,
                                      "相机标定",
                                      "是否选择相机标定文件？",
@@ -79,32 +78,38 @@ void ImageProcess::loadCalibrationData()
     if (ret1 == QMessageBox::Yes) {
         calibPath = QFileDialog::getOpenFileName(nullptr, ("选择相机标定文件"), "", ("Images (*.xml);;All Files (*)"));
     }
-    QFile file(calibPath);
-    if (!file.exists()) {
-        qInfo().noquote() << "相机标定文件不存在或未选择标定文件";
-    }
-
-    try {
-        cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
-        if (!fs.isOpened()) {
-            qInfo().noquote() << "无法打开相机标定文件";
-            return;
-        }
-
-        fs["camera_matrix"] >> m_cameraMatrix;
-        fs["distortion_coefficients"] >> m_distCoeffs;
-        fs.release();
-
-        if (m_cameraMatrix.empty() || m_distCoeffs.empty()) {
-            qInfo().noquote() << "相机标定文件数据无效";
+    if (calibPath.isEmpty()) {
+        qInfo().noquote() << "未选择相机标定文件，跳过该步骤";
+        m_isCameraCalibLoaded = false;
+    } else {
+        QFile file(calibPath);
+        if (!file.exists()) {
+            qInfo().noquote() << "相机标定文件不存在，跳过该步骤";
             m_isCameraCalibLoaded = false;
         } else {
-            m_isCameraCalibLoaded = true;
-            qInfo().noquote() << "相机标定数据加载成功！";
+            try {
+                cv::FileStorage fs(calibPath.toStdString(), cv::FileStorage::READ);
+                if (!fs.isOpened()) {
+                    qInfo().noquote() << "无法打开相机标定文件，跳过该步骤";
+                    m_isCameraCalibLoaded = false;
+                } else {
+                    fs["camera_matrix"] >> m_cameraMatrix;
+                    fs["distortion_coefficients"] >> m_distCoeffs;
+                    fs.release();
+
+                    if (m_cameraMatrix.empty() || m_distCoeffs.empty()) {
+                        qInfo().noquote() << "相机标定文件数据无效";
+                        m_isCameraCalibLoaded = false;
+                    } else {
+                        m_isCameraCalibLoaded = true;
+                        qInfo().noquote() << "相机标定数据加载成功！";
+                    }
+                }
+            } catch (cv::Exception& e) {
+                qInfo().noquote() << QString("加载标定数据异常: %1").arg(e.what());
+                m_isCameraCalibLoaded = false;
+            }
         }
-    } catch (cv::Exception& e) {
-        qInfo().noquote() << QString("加载标定数据异常: %1").arg(e.what());
-        m_isCameraCalibLoaded = false;
     }
 
 
@@ -165,54 +170,123 @@ void ImageProcess::loadCalibrationData()
     if (ret3 == QMessageBox::Yes) {
         calibMatrixPath = QFileDialog::getOpenFileName(nullptr, ("选择9*9振镜标定文件"), "", ("Images (*.xml);;All Files (*)"));
     }
-    QFile Matrixfile(calibMatrixPath);
-    if (!Matrixfile.exists()) {
-        qInfo().noquote() << "9*9振镜标定文件不存在或未选择标定文件";
-        return;
-    }
-
-    try {
-        // 读取 9x9 振镜单应矩阵
-        cv::FileStorage fs(calibMatrixPath.toStdString(), cv::FileStorage::READ);
-        if (!fs.isOpened()) {
-            qInfo().noquote() << "无法打开9*9振镜标定文件";
-            return;
-        }
-
-        fs["HomographyMatrix"] >> HomographyMatrix;
-        fs.release();
-
-        if (HomographyMatrix.empty()) {
-            qInfo().noquote() << "9*9振镜标定文件数据无效";
+    if (calibMatrixPath.isEmpty()) {
+        qInfo().noquote() << "未选择9*9振镜标定文件，跳过该步骤";
+        m_is9_9CalibLoaded = false;
+    } else {
+        QFile Matrixfile(calibMatrixPath);
+        if (!Matrixfile.exists()) {
+            qInfo().noquote() << "9*9振镜标定文件不存在，跳过该步骤";
             m_is9_9CalibLoaded = false;
         } else {
-            m_is9_9CalibLoaded = true;
-            qInfo().noquote() << "9*9振镜标定数据加载成功！";
+            try {
+                // 读取 9x9 振镜单应矩阵
+                cv::FileStorage fs(calibMatrixPath.toStdString(), cv::FileStorage::READ);
+                if (!fs.isOpened()) {
+                    qInfo().noquote() << "无法打开9*9振镜标定文件，跳过该步骤";
+                    m_is9_9CalibLoaded = false;
+                } else {
+                    fs["HomographyMatrix"] >> HomographyMatrix;
+                    fs.release();
+
+                    if (HomographyMatrix.empty()) {
+                        qInfo().noquote() << "9*9振镜标定文件数据无效";
+                        m_is9_9CalibLoaded = false;
+                    } else {
+                        m_is9_9CalibLoaded = true;
+                        qInfo().noquote() << "9*9振镜标定数据加载成功！";
+                    }
+                }
+            } catch (cv::Exception& e) {
+                qInfo().noquote() << QString("加载标定数据异常: %1").arg(e.what());
+                m_is9_9CalibLoaded = false;
+            }
         }
-    } catch (cv::Exception& e) {
-        qInfo().noquote() << QString("加载标定数据异常: %1").arg(e.what());
-        m_is9_9CalibLoaded = false;
     }
 
+    int ret4 = QMessageBox::question(nullptr,
+                                     "相机校正",
+                                     "是否选择相机校正文件？",
+                                     QMessageBox::Yes | QMessageBox::No,
+                                     QMessageBox::No);
+    QString homographyPath = nullptr;
+    if (ret4 == QMessageBox::Yes) {
+        homographyPath = QFileDialog::getOpenFileName(nullptr, ("选择相机校正文件"), "", ("Images (*.yaml);;All Files (*)"));
+    }
+    if (homographyPath.isEmpty()) {
+        qInfo().noquote() << "未选择相机校正文件，跳过该步骤";
+    } else {
+        try{
+            cv::FileStorage fs(std::string(homographyPath.toStdString()), cv::FileStorage::READ);
+            if (!fs.isOpened()) return ;
+            fs["gridCols"]    >> m_config.gridCols;
+            fs["gridRows"]    >> m_config.gridRows;
+            fs["squareMm"]    >> m_config.squareMm;
+            fs["outWidthMm"]  >> m_config.outWidthMm;
+            fs["outHeightMm"] >> m_config.outHeightMm;
+            fs["pixPerMm"]    >> m_config.pixPerMm;
+            if (!fs["homography"].empty())
+            {
+                fs["homography"] >> m_TiltParams.homography;
+                m_TiltParams.hasMap_ = !m_TiltParams.homography.empty();
+            }
+            fs.release();
+        }
+        
+        catch(const std::exception& e)
+        {
+            qInfo().noquote() << QString("加载相机校正数据异常: %1").arg(e.what());
+        }
+    }
 }
 
-// cv::Mat ImageProcess::WarPerspective(cv::Mat& originalImage)
-// {
-//     if (WarPerspectiveMatrix.empty()) {
-//         qInfo().noquote() << "单应性矩阵为空，无法进行透视变换";
-//         return cv::Mat();
-//     }
-//     if (m_isCameraCalibLoaded || m_is3_3CalibLoaded) {
-//         cv::Mat calibImg = originalImage;
-//             if (calibImg.empty()) {
-//             qInfo().noquote() << "校准图像为空，无法进行透视变换";
-//             return cv::Mat();
-//         }
-//         cv::Mat warpedImg;
-//         cv::warpPerspective(calibImg, warpedImg, WarPerspectiveMatrix, calibImg.size());
-//         return warpedImg;
-//     } else {
-//         qInfo().noquote() << "标定数据未加载，无法进行透视变换";
-//         return cv::Mat();
-//     }
-// }
+cv::Mat ImageProcess::WarPerspective(cv::Mat& originalImage){
+    cv::Mat displayedFrame;
+    if (!m_TiltParams.hasMap_) {
+        qDebug() << "[CameraCorrector] 请先调用 computeMap()。\n";
+        return cv::Mat();
+    }
+    if (originalImage.empty())
+        return cv::Mat();
+    cv::warpPerspective(originalImage, displayedFrame,m_TiltParams.homography,
+        m_config.outSize(),cv::INTER_LINEAR,cv::BORDER_CONSTANT,cv::Scalar::all(0));
+    return displayedFrame;
+}
+bool ImageProcess::m_isTiltLoaded() const
+{
+    return m_TiltParams.hasMap_;
+}
+
+double ImageProcess::mmPixel() const
+{
+    if (m_TiltParams.hasMap_) {
+        // 假设 mmPerPixel 是通过某种方式计算得到的
+         return 1.0 / m_config.pixPerMm;
+    }
+    return -1.0; // 返回 -1 表示失败
+}
+
+void ImageProcess::resetPhysicalOffset()
+{
+    physicalOffsetMm_ = {0.0, 0.0};
+}
+
+
+bool ImageProcess::setCoordinateOriginByPair(cv::Point2d pixelPt,
+                                                cv::Point2d physicalPtMm)
+{
+    if (m_config.pixPerMm <= 0.0)
+    {
+        std::cerr << "[BoardHomography] pixPerMm 非法，无法设置二次初始化偏移。\n";
+        return false;
+    }
+
+    const cv::Point2d baseMm(pixelPt.x / m_config.pixPerMm,
+                             pixelPt.y / m_config.pixPerMm);
+    physicalOffsetMm_ = physicalPtMm - baseMm;
+
+    std::cout << "[BoardHomography] 二次初始化偏移(mm): ("
+              << physicalOffsetMm_.x << ", "
+              << physicalOffsetMm_.y << ")\n";
+    return true;
+}
