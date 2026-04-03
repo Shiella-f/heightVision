@@ -36,7 +36,6 @@ public:
         }
     };
 
-
     CameraCorrector(const Config& cfg = Config{});
     ~CameraCorrector() = default;
     bool computeMap(const cv::Mat& undistImg);
@@ -52,7 +51,7 @@ public:
     // mm/px，用于量测
     double mmPerPixel() const { return 1.0 / cfg_.pixPerMm; }
 
-// 二次初始化：调整坐标系平移
+    // 二次初始化：调整坐标系平移
     bool setCoordinateOriginByPair(cv::Point2d pixelPt,
                                    cv::Point2d physicalPtMm);
     void setPhysicalOffsetMm(cv::Point2d offsetMm) { physicalOffsetMm_ = offsetMm; }
@@ -72,14 +71,14 @@ public:
 
 private:
     Config  cfg_;
-    cv::Mat H_;        // 去畸变图 → 输出正射图 的单应矩阵
+    cv::Mat H_;        //单应矩阵
     bool    hasMap_ = false;
     cv::Point2d physicalOffsetMm_ = {0.0, 0.0}; // 二次初始化得到的物理坐标偏移
 
     //理想角点位置（单位：像素）
     std::vector<cv::Point2f> makeTargetPts() const;
 
-    // 在图像中检测内角点（带亚像素精化）
+    // 在图像中检测内角点（亚像素）
     bool detectCorners(const cv::Mat& img,
                        std::vector<cv::Point2f>& corners) const;
 };
