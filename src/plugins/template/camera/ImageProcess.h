@@ -5,33 +5,37 @@
 #include <QMessageBox>
 #include <QObject>
 #include "../template_global.h"
-#include "../../../interfaces/Imageprocess.h" 
+#include "ImageprocessPort.h"
 
-class ImageProcess : public QObject, public IImageProcess {
+class ImageProcess : public QObject, public ImageProcessPort{
     Q_OBJECT
     
 public:
     ImageProcess();
     
-    // 实现接口虚函数
-    void loadCalibrationData() override; // 加载标定数据
-    cv::Mat CalibImage(cv::Mat &originalImage) override;
-    bool isCalibrationLoaded() const override { return m_isCameraCalibLoaded || m_is3_3CalibLoaded; }
+    bool loadCameraCalibration(const QString& calibFilePath) override; // 加载相机去畸变数据
+    bool loadTiltCalibration(const QString& calibFilePath) override; // 加载倾斜校正数据
+    bool load3x3Calibration(const QString& calibFilePath) override; // 加载3x3标定数据
+    bool load9x9Calibration(const QString& calibFilePath) override; // 加载9x9标定数据
+    
+    cv::Mat CalibImage(cv::Mat &originalImage) override;//去畸变图像，输入原始图像，输出去畸变后的图像
     cv::Mat WarPerspective(cv::Mat& originalImage) override; // 校正图像，输入单应性矩阵，输出校正后的图像
+    cv::Mat apply3x3Calibration(const cv::Mat& originalImage) override; // 应用3x3数据进行图像裁剪
+
+    bool isCalibrationLoaded() const override{ return m_isCameraCalibLoaded; }
     bool m_isTiltLoaded() const override; // 判断透视变换数据是否加载成功
+
     double mmPixel() const override; // 获取毫米/像素的转换比例
     bool setCoordinateOriginByPair(cv::Point2d pixelPt,cv::Point2d physicalPtMm) override;
-    void resetPhysicalOffset() override;
     
     //像素坐标->物理坐标（mm）
-    cv::Point2d pixelToMm(cv::Point2d px) const override{return { px.x / m_config.pixPerMm + physicalOffsetMm_.x, px.y / m_config.pixPerMm + physicalOffsetMm_.y };}
+    cv::Point2d pixelToMm(cv::Point2d px) override {return { px.x / m_config.pixPerMm + physicalOffsetMm_.x, px.y / m_config.pixPerMm + physicalOffsetMm_.y };}
     //物理坐标->像素坐标
-    cv::Point2d mmToPixel(cv::Point2d mm) const override{return { (mm.x - physicalOffsetMm_.x) * m_config.pixPerMm, (mm.y - physicalOffsetMm_.y) * m_config.pixPerMm };}
-
-public slots:
-   
-    
+    cv::Point2d mmToPixel(cv::Point2d mm) override {return { (mm.x - physicalOffsetMm_.x) * m_config.pixPerMm, (mm.y - physicalOffsetMm_.y) * m_config.pixPerMm };}
+    void loadCalibrationData(); // 加载标定数据
 private:
+    
+    void resetPhysicalOffset();
     cv::Mat m_cameraMatrix;
     cv::Mat m_distCoeffs;
     cv::Mat m_map1, m_map2;
@@ -83,5 +87,3 @@ private:
 
 };
 
-// 导出创建实例的工厂函数
-extern "C" TEMPLATE_EXPORT IImageProcess* CreateImageProcessInstance();

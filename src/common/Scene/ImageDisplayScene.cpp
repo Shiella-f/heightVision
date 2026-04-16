@@ -29,8 +29,6 @@ void ImageDisplayScene::setOriginalPixmap(const QPixmap &pixmap)
         return;
     }
 
-
-
     if (!m_pixmapItem) {
         m_pixmapItem = addPixmap(pixmap);
         m_pixmapItem->setTransformationMode(Qt::SmoothTransformation);
@@ -229,3 +227,4 @@ void ImageDisplayScene::clearOverlays()
         }
     }
 }
+

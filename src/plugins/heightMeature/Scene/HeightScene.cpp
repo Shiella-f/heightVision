@@ -493,3 +493,17 @@ bool HeightScene::event(QEvent *event)
 
     return ImageSceneBase::event(event);
 }
+
+bool HeightScene::showImage(const QImage &image)
+{
+    if(image.isNull()) {
+        return false;
+    }
+    setOriginalPixmap(QPixmap::fromImage(image));
+    return true;
+}
+
+QGraphicsScene* HeightScene::toScene()
+{
+    return this;
+}

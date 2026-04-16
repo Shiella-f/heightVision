@@ -8,6 +8,7 @@
 #include <QGraphicsView>
 #include <QString>
 #include <QPainterPath>
+#include <QPixmap>
 
 MatchScene::MatchScene(QObject *parent)
     : ImageSceneBase(parent)
@@ -38,6 +39,20 @@ MatchScene::MatchScene(QObject *parent)
     resetImage();
 }
 
+bool MatchScene::showImage(const QImage &image)
+{
+    if (image.isNull()) {
+        return false;
+    }
+    setOriginalPixmap(QPixmap::fromImage(image));
+    return true;
+}
+
+void MatchScene::clearRoi()
+{
+    clear();
+}
+
 // 当场景的图像被更新时，刷新显示的图片尺寸（修改）
 void MatchScene::onImageUpdated()
 {
@@ -63,20 +78,23 @@ void MatchScene::onImageCleared()
     if (m_imageSizeItem) m_imageSizeItem->setVisible(false);
 }
 
-void MatchScene::setCompositionMode(MatchScene::CompositionMode m)
+bool MatchScene::setCompositionMode(MatchScene::CompositionMode m)
 {
     m_compMode = m;
     emit roiChanged();
+    return true;
 }
 
-void MatchScene::setShapeMode(MatchScene::ShapeMode s)
+bool MatchScene::setShapeMode(MatchScene::ShapeMode s)
 {
     m_shapeMode = s;
+    return true;
 }
 
-void MatchScene::setPenWidth(int w)
+bool MatchScene::setPenWidth(int w)
 {
     m_penWidth = std::max(1, w);
+    return true;
 }
 
 void MatchScene::setSelectionTemplateEnabled(bool enable)

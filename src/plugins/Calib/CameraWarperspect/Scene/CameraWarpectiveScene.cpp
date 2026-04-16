@@ -93,3 +93,8 @@ int WarpectiveScene::selectedPointOrder(const QPointF point) const
     }
     return -1; // 没有选中任何点
 }
+
+void WarpectiveScene::setOriPixmap(const QPixmap& pixmap)
+{
+    this->setOriginalPixmap(pixmap);
+}

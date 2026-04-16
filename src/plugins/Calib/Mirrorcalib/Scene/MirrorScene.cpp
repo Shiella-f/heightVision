@@ -474,3 +474,8 @@ void MirrorScene::onViewAttached(QGraphicsView *newView)
     ImageSceneBase::onViewAttached(newView);
     updateDragMode();
 }
+
+void MirrorScene::setOriPixmap(const QPixmap& pixmap)
+{
+    this->setOriginalPixmap(pixmap);
+}

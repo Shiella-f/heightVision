@@ -3,12 +3,14 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QMessageBox>
 #include <array>
+#include "../Function/CameraWarptivePort.h"
 
-class WarpectiveScene : public ImageSceneBase {
+class WarpectiveScene : public ImageSceneBase, public ICameraWarptiveSeene {
     Q_OBJECT
 public:
 
     explicit WarpectiveScene(QObject *parent = nullptr);
+    void setOriPixmap(const QPixmap& pixmap) override;
     void setSelectingPoint(bool isSelecting){isSelectingPoint = isSelecting;}
     int selectedPointOrder(const QPointF point) const;
 

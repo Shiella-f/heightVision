@@ -2,12 +2,14 @@
 #include "Scene/ImageSceneBase.h"
 #include <QGraphicsSceneMouseEvent>
 #include <array>
+#include "../Function/MirrorCalibPort.h"
 
-class MirrorScene : public ImageSceneBase {
+class MirrorScene : public ImageSceneBase, public IMirrorScene {
     Q_OBJECT
 public:
 
     explicit MirrorScene(QObject *parent = nullptr);
+    void setOriPixmap(const QPixmap& pixmap) override;
     void setRoiArea(const QRectF &roi);
     QRectF getRoiArea() const;
     void clearRoi(); 

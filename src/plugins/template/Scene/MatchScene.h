@@ -10,24 +10,26 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsEllipseItem>
 #include "template/template_global.h"
+#include "../Function/matchPort.h"
 
 class QGraphicsTextItem; // 用于显示图片尺寸的文本项前向声明（修改）
 
 // MatchScene: 继承自 ImageSceneBase 的可交互 ROI 选择场景
-class TEMPLATE_EXPORT MatchScene : public ImageSceneBase {
+class TEMPLATE_EXPORT MatchScene : public ImageSceneBase, public IMatchScene {
     Q_OBJECT
 public:
-    enum CompositionMode { United = 0, Intersected = 1, Subtracted = 2 };
-    enum ShapeMode { Rect = 0, Ellipse = 1, Free = 2 };
+    using CompositionMode = IMatchScene::CompositionMode;
+    using ShapeMode = IMatchScene::ShapeMode;
+    void setSelectionTemplateEnabled(bool enable) override; // 开关模板区域绘制功能
+    bool setCompositionMode(CompositionMode m) override;
+    bool setShapeMode(ShapeMode s) override;
+    bool setPenWidth(int w) override;
+
 
     explicit MatchScene(QObject *parent = nullptr);
-
-    void setSelectionTemplateEnabled(bool enable); // 开关模板区域绘制功能
+    bool showImage(const QImage &image) override;
+    void clearRoi();
     void setRoiAreaSelectionEnabled(bool enable); // 开关匹配区域选择功能
-
-    void setCompositionMode(CompositionMode m);
-    void setShapeMode(ShapeMode s);
-    void setPenWidth(int w);
     void clear();
 
     QPointF imageToScenePoint(const QPointF &pt) const; // 将图像像素坐标映射到场景坐标
@@ -43,8 +45,6 @@ public:
     void DrawTotalPath(QVector<QPainterPath> paths); // 在场景中绘制合成后的 ROI 路径
 
     QVector<QPainterPath> getDrawPaths() const { return drawPaths; } // 获取当前绘制的路径集合 
-
-    
 
 signals:
     void totalPathPathChanged(const QPainterPath &path);

@@ -1,6 +1,6 @@
 #pragma once
-#include "Scene/ImageSceneBase.h"
-
+#include "../../../common/Scene/ImageSceneBase.h"
+#include "../Function/HeightTestPort.h"
 #include <array>
 
 class QPointF;
@@ -10,17 +10,18 @@ class QGraphicsRectItem;
 class QGraphicsSceneMouseEvent;
 
 // HeightScene 在 ImageSceneBase 的基础上提供 ROI 拾取与调整能力
-class HeightScene : public ImageSceneBase {
+class HeightScene : public ImageSceneBase ,public IHeightScene{
     Q_OBJECT
 public:
     explicit HeightScene(QObject *parent = nullptr); // 初始化交互状态
-
+    bool showImage(const QImage &image) override;           // 显示图像时重置 ROI 状态
     void setRoiArea(const QRectF &roi);               // 设置用户选取的ROI区域
     bool getRoiArea(QRectF &roi) const;               // 获取用户选取的ROI区域
     void enableRoiSelection(bool enable);             // 开启/关闭 ROI 拾取模式
     void setRoiSelectionEnabled(bool enabled);        // 设置 ROI 拾取模式
-    void clearRoi();                                  // 清除已选 ROI
-    
+    void clearRoi() override;                                  // 清除已选 ROI
+
+    QGraphicsScene* toScene();
 
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;           // 处理点拾取与拖拽

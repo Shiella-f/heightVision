@@ -27,3 +27,8 @@ void CameraCalibScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 {
     QGraphicsScene::mouseReleaseEvent(event);
 }
+
+void CameraCalibScene::setOriPixmap(const QPixmap& pixmap)
+{
+    this->setOriginalPixmap(pixmap);
+}
