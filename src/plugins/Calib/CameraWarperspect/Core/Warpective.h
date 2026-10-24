@@ -54,4 +54,8 @@ private:
     // 在图像中检测内角点（亚像素）
     bool detectCorners(const cv::Mat& img,
                        std::vector<cv::Point2f>& corners) const;
+
+    // 根据检测到的棋盘格角点估计当前图像可支持的输出分辨率。
+    double estimateAdaptivePixPerMm(const std::vector<cv::Point2f>& corners,
+                                    const cv::Size& imageSize) const;
 };

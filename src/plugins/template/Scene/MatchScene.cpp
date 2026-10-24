@@ -9,6 +9,7 @@
 #include <QString>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QPainter>
 
 MatchScene::MatchScene(QObject *parent)
     : ImageSceneBase(parent)
@@ -46,6 +47,26 @@ bool MatchScene::showImage(const QImage &image)
     }
     setOriginalPixmap(QPixmap::fromImage(image));
     return true;
+}
+
+bool MatchScene::saveRoiMask(const QString& filePath) const
+{
+    const QImage sourceImage = getSourceImageMat();
+    if (filePath.isEmpty() || sourceImage.isNull() || m_totalPath.isEmpty()) {
+        return false;
+    }
+
+    QImage mask(sourceImage.size(), QImage::Format_Grayscale8);
+    mask.fill(0);
+
+    QPainter painter(&mask);
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(Qt::white);
+    painter.drawPath(m_totalPath);
+    painter.end();
+
+    return mask.save(filePath);
 }
 
 void MatchScene::clearRoi()

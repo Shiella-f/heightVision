@@ -2334,3 +2334,6 @@ build/.cmake/api/v1/reply/target-qt_vscode_app-Debug-adcc4db8ff90460dc3ac.json
 build/.cmake/api/v1/reply/target-qt_vscode_app-MinSizeRel-6c71bcaf2d3b100e8344.json
 build/.cmake/api/v1/reply/target-qt_vscode_app-Release-d8596987447790b00783.json
 build/.cmake/api/v1/reply/target-qt_vscode_app-RelWithDebInfo-744cc967aeb47c003be6.json
+
+# OpenCV runtime DLLs (local dependencies)
+opencv_world*.dll

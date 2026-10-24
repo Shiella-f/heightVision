@@ -1,56 +1,13 @@
 #ifndef BSCV_MODULES_TEMPLMATCH_INCLUDE_TEMPLMATCH_H
 #define BSCV_MODULES_TEMPLMATCH_INCLUDE_TEMPLMATCH_H
 
-#include "opencv2/core.hpp"
+#include "templMatchTypes.h"
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace TIGER_BSVISION
 {
-    struct Feature
-    {
-        int x;
-        int y;
-        int label;
-
-        Feature() : x(0), y(0), label(0) {};
-        Feature(int _x, int _y, int _label) : x(_x), y(_y), label(_label){};
-    };
-
-    struct Template
-    {
-        int width;
-        int height;
-        int tl_x;
-        int tl_y;
-        int pyramid_level;
-        std::vector<Feature> features;
-    };
-
-    struct Match
-    {
-        int x, y;
-        float xPrecise, yPrecise;
-        double angle, scale;
-        std::vector<cv::Point2f> pts;
-
-        float similarity;
-        std::string class_id;
-        int template_id;
-
-        Template templ;
-        double init_angle, init_scale;
-        int width, height;
-        cv::Mat mat = cv::Mat(3, 3, CV_32F);
-
-        cv::Point2f transPt(cv::Point2f p_pt) const;
-        std::vector<cv::Point2f> transPts(std::vector<cv::Point2f> p_pts) const;
-
-        Match() {};
-        Match(int _x, int _y, float _xPrecise, float _yPrecise, double _angle, double _scale,  std::vector<cv::Point2f> _pts, float _similarity, const std::string &_class_id, int _template_id, const Template &_templ, double _init_angle, double _init_scale, int _width, double _height, const cv::Mat &_mat)
-            : x(_x), y(_y), xPrecise(_xPrecise), yPrecise(_yPrecise), angle(_angle), scale(_scale), pts(_pts), similarity(_similarity), class_id(_class_id), template_id(_template_id), templ(_templ), init_angle(_init_angle), init_scale(_init_scale), width(_width), height(_height),mat(_mat) {};
-        Match(int _x, int _y, float _xPrecise, float _yPrecise, double _angle, double _scale,  std::vector<cv::Point2f> _pts, float _similarity, const std::string &_class_id, int _template_id)
-            : x(_x), y(_y), xPrecise(_xPrecise), yPrecise(_yPrecise), angle(_angle), scale(_scale), pts(_pts), similarity(_similarity), class_id(_class_id), template_id(_template_id) {};
-    };
-
     class ITemplMatch
     {
     public:
@@ -69,6 +26,8 @@ namespace TIGER_BSVISION
             weak_thresh：匹配阈值，在匹配时用在图片处理生成方向量化上，越高方向量化点越少。
             strong_thresh：模板阈值，生成模板时用来评价当前点是否为特征点，该值越高识别的特征点越少。
             num_features: 最小模板点数。
+            threshold_value:内外轮廓二值化阈值。
+            threshold_type:0表示不区分，1表示大于阈值区域为有效区域，2表示小于阈值区域为有效区域。
         */
         virtual bool create_shape_model(cv::InputArray _image, cv::InputArray _mask = cv::Mat(), float _angle_start = 0.0f, float _angle_extent = 360.0f, float _angle_step = 1.0f, float _scale_min = 0.9, float _scale_max = 1.1, float _scale_step = 0.01f,float _weak_thresh = 30.0f, float _strong_thresh = 60.0f, size_t _num_features = 64) = 0;
         virtual bool create_one_shape_model(cv::InputArray _image, cv::InputArray _mask = cv::Mat(), float _weak_thresh = 30.0f, float _strong_thresh = 60.0f, size_t _num_features = 30) = 0;
@@ -115,6 +74,137 @@ namespace TIGER_BSVISION
 
     ITemplMatch *newTemplMatch();
     ITemplMatch *newTemplMatch(ITemplMatch * p_templMatch);
+
+    namespace templmatch
+    {
+        enum class ErrorCode
+        {
+            Ok = 0,
+            EmptyImage,
+            EmptyModel,
+            InvalidArgument,
+            CreateModelFailed,
+            FindModelFailed,
+            ReadModelFailed,
+            WriteModelFailed,
+            AlgorithmError
+        };
+
+        struct OperationResult
+        {
+            bool ok{false};
+            ErrorCode code{ErrorCode::Ok};
+            std::string message{};
+
+            static OperationResult success();
+            static OperationResult failure(ErrorCode code, const std::string& message);
+        };
+
+        template <typename T>
+        struct Result
+        {
+            bool ok{false};
+            ErrorCode code{ErrorCode::Ok};
+            std::string message{};
+            T value{};
+
+            static Result<T> success(const T& value)
+            {
+                Result<T> result;
+                result.ok = true;
+                result.code = ErrorCode::Ok;
+                result.value = value;
+                return result;
+            }
+
+            static Result<T> failure(ErrorCode code, const std::string& message)
+            {
+                Result<T> result;
+                result.ok = false;
+                result.code = code;
+                result.message = message;
+                return result;
+            }
+        };
+
+        struct ShapeModelOptions
+        {
+            float angle_start{0.0f};
+            float angle_extent{360.0f};
+            float angle_step{1.0f};
+            float scale_min{0.9f};
+            float scale_max{1.1f};
+            float scale_step{0.01f};
+            float weak_thresh{30.0f};
+            float strong_thresh{60.0f};
+            size_t num_features{64};
+        };
+
+        struct OneShapeModelOptions
+        {
+            float weak_thresh{30.0f};
+            float strong_thresh{60.0f};
+            size_t num_features{30};
+        };
+
+        struct FindOptions
+        {
+            float threshold{90.0f};
+        };
+
+        struct FindPicOptions
+        {
+            float threshold{90.0f};
+            float angle_start{0.0f};
+            float angle_extent{360.0f};
+            float angle_step{1.0f};
+            float scale_min{0.9f};
+            float scale_max{1.1f};
+            float scale_step{0.01f};
+            float weak_thresh{30.0f};
+            size_t num_features{64};
+        };
+
+        class TemplateMatcher
+        {
+        public:
+            TemplateMatcher();
+            TemplateMatcher(const TemplateMatcher& other);
+            TemplateMatcher& operator=(const TemplateMatcher& other);
+            TemplateMatcher(TemplateMatcher&& other) noexcept;
+            TemplateMatcher& operator=(TemplateMatcher&& other) noexcept;
+            ~TemplateMatcher();
+
+            OperationResult createShapeModel(cv::InputArray image,
+                                             cv::InputArray mask = cv::Mat(),
+                                             const ShapeModelOptions& options = {});
+            OperationResult createOneShapeModel(cv::InputArray image,
+                                                cv::InputArray mask = cv::Mat(),
+                                                const OneShapeModelOptions& options = {});
+
+            Result<std::vector<Match>> findShapeModel(cv::InputArray image,
+                                                      cv::InputArray mask = cv::Mat(),
+                                                      const FindOptions& options = {}) const;
+            Result<std::vector<Match>> findPicModel(cv::InputArray image,
+                                                    cv::InputArray model,
+                                                    cv::InputArray mask = cv::Mat(),
+                                                    cv::InputArray model_mask = cv::Mat(),
+                                                    const FindPicOptions& options = {});
+
+            Result<Template> getTemplate(int id) const;
+            Result<float> getAngle(int id) const;
+            Result<float> getScale(int id) const;
+
+            OperationResult writeShapeModel(const cv::String& fileName) const;
+            OperationResult readShapeModel(const cv::String& fileName);
+
+            bool empty() const;
+            void clear();
+
+        private:
+            std::unique_ptr<ITemplMatch> impl_;
+        };
+    }
 }
 
 #endif  //BSCV_MODULES_TEMPLMATCH_INCLUDE_TEMPLMATCH_H

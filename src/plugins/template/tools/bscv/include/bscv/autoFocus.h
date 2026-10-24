@@ -1,6 +1,4 @@
-﻿#ifndef BSCV_AutoFocus_H
-#define BSCV_AutoFocus_H
-#include "opencv2/opencv.hpp"
+﻿#include "opencv2/opencv.hpp"
 
 namespace TIGER_BSVISION
 {
@@ -10,4 +8,3 @@ namespace TIGER_BSVISION
 */
     double calculateFocusMeasure(const cv::Mat& _image);
 }
-#endif

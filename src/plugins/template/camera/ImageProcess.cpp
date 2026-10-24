@@ -329,3 +329,31 @@ ImageProcessPort* newImageProcessPort() {
     return new ImageProcess();
 }
 
+cv::Mat ImageProcess::enhanceResultImage(const cv::Mat& src)
+{
+    if (src.empty()) return src;
+
+    cv::Mat contrast = src.clone();
+
+    // 局部对比度增强，适合纹理/边缘不明显的图
+    if (src.channels() == 3) {
+        cv::Mat lab;
+        cv::cvtColor(src, lab, cv::COLOR_BGR2Lab);
+
+        std::vector<cv::Mat> ch;
+        cv::split(lab, ch);
+
+        auto clahe = cv::createCLAHE(1.5, cv::Size(8, 8));
+        clahe->apply(ch[0], ch[0]);
+
+        cv::merge(ch, lab);
+        cv::cvtColor(lab, contrast, cv::COLOR_Lab2BGR);
+    }
+
+    // 轻度反遮罩锐化
+    cv::Mat blurred, sharp;
+    cv::GaussianBlur(contrast, blurred, cv::Size(0, 0), 1.0);
+    cv::addWeighted(contrast, 1.45, blurred, -0.45, 0, sharp);
+
+    return sharp;
+}

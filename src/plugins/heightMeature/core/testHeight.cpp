@@ -1,7 +1,6 @@
 #include "testHeight.h"
 
 #include <filesystem>
-#include <QFileDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QDebug>
@@ -9,7 +8,6 @@
 #include <cctype>
 #include <cmath>
 #include <utility>
-#include <QMessageBox>
 
 namespace Height::core {
 
@@ -333,7 +331,12 @@ bool HeightCore::loadTestImageInfo(const QString& imagePath)
 
     m_testImageInfo.path = imagePath.toStdString();
     m_testImageInfo.image = cv::imread(m_testImageInfo.path, cv::IMREAD_COLOR);
-     m_testImageInfo.spot1Found = false;
+    if (m_testImageInfo.image.empty()) {
+        qWarning() << "Failed to load test image:" << imagePath;
+        return false;
+    }
+
+    m_testImageInfo.spot1Found = false;
     m_testImageInfo.spot2Found = false;
     m_testImageInfo.spot1Pos = cv::Point2f();
     m_testImageInfo.spot2Pos = cv::Point2f();
@@ -504,29 +507,53 @@ bool HeightCore::processImage(const cv::Mat& input,
     cv::Point2f offset(static_cast<float>(roi.x), static_cast<float>(roi.y));
 
     // 3. 图像预处理
-    
-    cv::Mat  filtered;
-    if(Usechannel == 1)
+    cv::Mat gray;
+    cv::Mat roiImg = input(roi);
+    if(Usechannel == 1 && roiImg.channels() >= 3)
     {
-        cv::Mat roiImg = input;
         std::vector<cv::Mat> channels;
         cv::split(roiImg, channels); // 分离 B, G, R 通道
-    
-    // channels[0]是蓝色(B), channels[1]是绿色(G), channels[2]是红色(R)
-    // 核心逻辑：红色激光 R值高G值低，白色反光 R值高G值也高。
-    // 使用 subtract 会自动进行饱和截断（负值变为0）
-        cv::Mat gray;
-        cv::subtract(channels[2], channels[1], gray); 
-        cv::threshold(gray, gray, 100, 255, cv::THRESH_BINARY);
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(gray, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE); // 改为只检测外轮廓，减少嵌套干扰
-        cv::Mat mask = cv::Mat::zeros(gray.size(), CV_8UC1);
-        cv::drawContours(mask, contours, -1, cv::Scalar(255), cv::FILLED);
-        cv::bitwise_and(roiImg, roiImg, filtered, mask);
+
+        // 同时检测红光和蓝光：红光要求 R 明显高于 G/B，蓝光要求 B 明显高于 G/R。
+        // 白色强反光三个通道都高，颜色优势不明显，会被这一步压掉。
+        cv::Mat redBase;
+        cv::Mat blueBase;
+        cv::Mat redScore;
+        cv::Mat blueScore;
+        cv::max(channels[0], channels[1], redBase);
+        cv::subtract(channels[2], redBase, redScore);
+        cv::max(channels[1], channels[2], blueBase);
+        cv::subtract(channels[0], blueBase, blueScore);
+
+        cv::Mat redMask;
+        cv::Mat blueMask;
+        cv::Mat colorMask;
+        const double colorDominanceThreshold = 50.0;
+        cv::threshold(redScore, redMask, colorDominanceThreshold, 255, cv::THRESH_BINARY);
+        cv::threshold(blueScore, blueMask, colorDominanceThreshold, 255, cv::THRESH_BINARY);
+        cv::bitwise_or(redMask, blueMask, colorMask);
+
+        cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+        cv::morphologyEx(colorMask, colorMask, cv::MORPH_OPEN, element, cv::Point(-1, -1), 1);
+        cv::morphologyEx(colorMask, colorMask, cv::MORPH_CLOSE, element, cv::Point(-1, -1), 1);
+
+        // 后续仍走统一阈值和轮廓逻辑；这里用 R/B 最大值做强度图，
+        // 避免蓝光在 BGR 转灰度时权重过低导致默认阈值漏检。
+        cv::Mat laserIntensity;
+        cv::max(channels[2], channels[0], laserIntensity);
+        gray = cv::Mat::zeros(laserIntensity.size(), laserIntensity.type());
+        laserIntensity.copyTo(gray, colorMask);
+    }
+    else if (roiImg.channels() == 1) {
+        gray = roiImg.clone();
+    }
+    else {
+        cv::cvtColor(roiImg, gray, cv::COLOR_BGR2GRAY);
     }
 
-    cv::Mat gray;
-    cv::cvtColor(filtered(roi), gray, cv::COLOR_BGR2GRAY);
+    if (gray.empty()) {
+        return false;
+    }
     cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0);
     cv::Mat thresh;
     // 如果阈值设置不合理(<=0)，启用 Otsu 自动阈值
@@ -758,3 +785,4 @@ bool HeightCore::loadCalibrationData(const QString& filePath)
 
 
 } // namespace Height::core
+

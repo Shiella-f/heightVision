@@ -11,7 +11,7 @@
 #include "template/template_global.h"
 #include "../core/MatchParams.h"
 #include "../core/orionvisionglobal.h"
-#include "template/core/client/UDPMatReceiver.h"
+//#include "template/core/client/UDPMatReceiver.h"
 #include "../camera/ImageProcess.h"
 #include "matchPort.h"
 
@@ -71,7 +71,7 @@ private:
                                                        QPointF pivotPoint);
     void scaleinitData();
 
-    void connectUDPReceiver();
+    //void connectUDPReceiver();
 
 protected:
     

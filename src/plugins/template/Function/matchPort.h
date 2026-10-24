@@ -20,6 +20,8 @@ public:
     virtual bool setShapeMode(ShapeMode s) = 0;
     //设置绘制ROI的画笔宽度
     virtual bool setPenWidth(int w) = 0;
+    //按原图尺寸保存二值ROI掩码：ROI内部255，外部0
+    virtual bool saveRoiMask(const QString& filePath) const = 0;
 protected:
     IMatchScene() = default;
 };

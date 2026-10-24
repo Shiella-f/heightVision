@@ -257,47 +257,47 @@ bool matchFunction::setMoveRotateData()
     return true;
 }
 
-void matchFunction::connectUDPReceiver()
-{
-    auto* m_UDPMatReceiver = new UDPMatReceiver(this);
+// void matchFunction::connectUDPReceiver()
+// {
+//     auto* m_UDPMatReceiver = new UDPMatReceiver(this);
 
-    connect(m_UDPMatReceiver, &UDPMatReceiver::statusText, this, [](const QString& s){
-    qDebug() << s;
-    });
+//     connect(m_UDPMatReceiver, &UDPMatReceiver::statusText, this, [](const QString& s){
+//     qDebug() << s;
+//     });
 
-    // 注意：cv::Mat 是引用计数对象，跨线程传递一般可用；
-    // 但如果你会在接收线程继续复用/修改 frame，建议在槽里 frame.clone()。
-    auto udpDataReceived = std::make_shared<bool>(false); // 使用共享指针记录是否收到数据，避免局部变量悬空
-    auto udpAttemptCount = std::make_shared<int>(0); // 使用共享指针记录已尝试次数
+//     // 注意：cv::Mat 是引用计数对象，跨线程传递一般可用；
+//     // 但如果你会在接收线程继续复用/修改 frame，建议在槽里 frame.clone()。
+//     auto udpDataReceived = std::make_shared<bool>(false); // 使用共享指针记录是否收到数据，避免局部变量悬空
+//     auto udpAttemptCount = std::make_shared<int>(0); // 使用共享指针记录已尝试次数
 
-    connect(m_UDPMatReceiver, &UDPMatReceiver::frameReady, this, [&, udpDataReceived](const cv::Mat& frame){
-        *udpDataReceived = true; // 收到首帧标记成功
-        cv::Mat local = frame.clone(); // 拷贝一份图像避免线程安全问题
-        setcurrentImage(m_ImageProcess->CalibImage(local)); // 校正后更新到界面
-    });
-    // 注意：0.0.0.0 是服务器监听地址（表示监听所有网卡），客户端发送必须指定具体 IP。
-    // 如果服务器在本地，用 "127.0.0.1"；如果在树莓派/其他机器，请输入它的局域网 IP（如 "192.168.1.x"）。
-    QTimer* udpRetryTimer = new QTimer(this); // 创建重试定时器
-    udpRetryTimer->setInterval(500); // 设置 500ms 间隔
-    connect(udpRetryTimer, &QTimer::timeout, this, [this, m_UDPMatReceiver, udpRetryTimer, udpDataReceived, udpAttemptCount]() {
-        if (*udpDataReceived) { // 如果已收到数据则认为成功
-            qDebug() << "UDP 已收到首帧，停止重试"; // 打印成功日志
-            udpRetryTimer->stop(); // 停止定时器
-            udpRetryTimer->deleteLater(); // 释放定时器
-            return; // 结束本次回调
-        }
-        if (*udpAttemptCount >= 10) { // 超过 5 次未收到数据则放弃
-            qWarning() << "UDP 未收到数据，停止重试，共尝试" << *udpAttemptCount << "次"; // 打印失败日志
-            udpRetryTimer->stop(); // 停止定时器
-            udpRetryTimer->deleteLater(); // 释放定时器
-            m_UDPMatReceiver->stop(); // 停止内部重连定时器，避免继续发送握手日志
-            return; // 结束本次回调
-        }
-        ++(*udpAttemptCount); // 增加尝试计数
-        m_UDPMatReceiver->start("192.168.137.131", 9000); // 发起一次握手尝试等待数据
-    });
-    udpRetryTimer->start(); // 启动定时器开始尝试接收数据
-}
+//     connect(m_UDPMatReceiver, &UDPMatReceiver::frameReady, this, [&, udpDataReceived](const cv::Mat& frame){
+//         *udpDataReceived = true; // 收到首帧标记成功
+//         cv::Mat local = frame.clone(); // 拷贝一份图像避免线程安全问题
+//         setcurrentImage(m_ImageProcess->CalibImage(local)); // 校正后更新到界面
+//     });
+//     // 注意：0.0.0.0 是服务器监听地址（表示监听所有网卡），客户端发送必须指定具体 IP。
+//     // 如果服务器在本地，用 "127.0.0.1"；如果在树莓派/其他机器，请输入它的局域网 IP（如 "192.168.1.x"）。
+//     QTimer* udpRetryTimer = new QTimer(this); // 创建重试定时器
+//     udpRetryTimer->setInterval(500); // 设置 500ms 间隔
+//     connect(udpRetryTimer, &QTimer::timeout, this, [this, m_UDPMatReceiver, udpRetryTimer, udpDataReceived, udpAttemptCount]() {
+//         if (*udpDataReceived) { // 如果已收到数据则认为成功
+//             qDebug() << "UDP 已收到首帧，停止重试"; // 打印成功日志
+//             udpRetryTimer->stop(); // 停止定时器
+//             udpRetryTimer->deleteLater(); // 释放定时器
+//             return; // 结束本次回调
+//         }
+//         if (*udpAttemptCount >= 10) { // 超过 5 次未收到数据则放弃
+//             qWarning() << "UDP 未收到数据，停止重试，共尝试" << *udpAttemptCount << "次"; // 打印失败日志
+//             udpRetryTimer->stop(); // 停止定时器
+//             udpRetryTimer->deleteLater(); // 释放定时器
+//             m_UDPMatReceiver->stop(); // 停止内部重连定时器，避免继续发送握手日志
+//             return; // 结束本次回调
+//         }
+//         ++(*udpAttemptCount); // 增加尝试计数
+//         m_UDPMatReceiver->start("192.168.137.131", 9000); // 发起一次握手尝试等待数据
+//     });
+//     udpRetryTimer->start(); // 启动定时器开始尝试接收数据
+// }
 
  QVariantMap matchFunction::getMoveRotateDataMap() const{
     QVariantMap map;

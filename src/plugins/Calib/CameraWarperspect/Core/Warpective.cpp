@@ -1,9 +1,31 @@
 ﻿
 #include "Warpective.h"
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
 #include <QDebug>
+
+namespace {
+double medianValue(std::vector<double> values)
+{
+    if (values.empty())
+        return 0.0;
+
+    const size_t mid = values.size() / 2;
+    std::nth_element(values.begin(), values.begin() + mid, values.end());
+    double median = values[mid];
+
+    if (values.size() % 2 == 0)
+    {
+        std::nth_element(values.begin(), values.begin() + mid - 1, values.end());
+        median = (median + values[mid - 1]) * 0.5;
+    }
+
+    return median;
+}
+}
 
 CameraCorrector::CameraCorrector(const Config& cfg) : cfg_(cfg)
 {
@@ -65,6 +87,54 @@ bool CameraCorrector::detectCorners(const cv::Mat& img,
     return (int)corners.size() == cfg_.innerCols() * cfg_.innerRows();
 }
 
+double CameraCorrector::estimateAdaptivePixPerMm(
+    const std::vector<cv::Point2f>& corners,
+    const cv::Size& imageSize) const
+{
+    const int cols = cfg_.innerCols();
+    const int rows = cfg_.innerRows();
+    if ((int)corners.size() != cols * rows || cols < 2 || rows < 2)
+        return 0.0;
+
+    std::vector<double> horizontalSpacings;
+    std::vector<double> verticalSpacings;
+    horizontalSpacings.reserve(rows * (cols - 1));
+    verticalSpacings.reserve((rows - 1) * cols);
+
+    for (int r = 0; r < rows; ++r)
+    {
+        for (int c = 0; c < cols - 1; ++c)
+        {
+            const int idx = r * cols + c;
+            horizontalSpacings.push_back(cv::norm(corners[idx + 1] - corners[idx]));
+        }
+    }
+
+    for (int r = 0; r < rows - 1; ++r)
+    {
+        for (int c = 0; c < cols; ++c)
+        {
+            const int idx = r * cols + c;
+            verticalSpacings.push_back(cv::norm(corners[idx + cols] - corners[idx]));
+        }
+    }
+
+    const double pxPerMmX = medianValue(horizontalSpacings) / cfg_.squareMm;
+    const double pxPerMmY = medianValue(verticalSpacings) / cfg_.squareMm;
+    double adaptivePixPerMm = std::min(pxPerMmX, pxPerMmY);
+
+    if (cfg_.outWidthMm > 0.0 && cfg_.outHeightMm > 0.0 &&
+        imageSize.width > 0 && imageSize.height > 0)
+    {
+        const double sourceLimit = std::min(
+            imageSize.width / cfg_.outWidthMm,
+            imageSize.height / cfg_.outHeightMm);
+        adaptivePixPerMm = std::min(adaptivePixPerMm, sourceLimit);
+    }
+
+    return adaptivePixPerMm;
+}
+
 bool CameraCorrector::computeMap(const cv::Mat& undistImg)
 {
     if (undistImg.empty())
@@ -81,6 +151,18 @@ bool CameraCorrector::computeMap(const cv::Mat& undistImg)
                  << "请确保图像已去畸变且棋盘格完整可见。\n";
         return false;
     }
+
+    const double adaptivePixPerMm =
+        estimateAdaptivePixPerMm(detectedPts, undistImg.size());
+    if (!(adaptivePixPerMm > 0.0) || !std::isfinite(adaptivePixPerMm))
+    {
+        qDebug() << "[CameraCorrector] 自适应输出分辨率估计失败。\n";
+        return false;
+    }
+
+    cfg_.pixPerMm = adaptivePixPerMm;
+    qDebug() << "[CameraCorrector] 自适应输出分辨率: "
+             << QString::number(cfg_.pixPerMm, 'f', 3) << "px/mm\n";
 
     //生成目标点
     std::vector<cv::Point2f> targetPts = makeTargetPts();
@@ -175,7 +257,7 @@ bool CameraCorrector::warp(const cv::Mat& undistImg, cv::Mat& dst) const
         undistImg, dst,
         H_,
         cfg_.outSize(),
-        cv::INTER_LINEAR,
+        cv::INTER_LANCZOS4,
         cv::BORDER_CONSTANT,
         cv::Scalar::all(0));
 

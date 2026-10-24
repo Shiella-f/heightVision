@@ -13,6 +13,7 @@ class ImageProcessPort{
     virtual bool load9x9Calibration(const QString& calibFilePath) = 0; // 加载9x9标定数据
     virtual cv::Mat CalibImage(cv::Mat &originalImage) = 0;//去畸变图像，输入原始图像，输出去畸变后的图像
     virtual cv::Mat WarPerspective(cv::Mat& originalImage) = 0; // 校正图像，输入单应性矩阵，输出校正后的图像
+    virtual cv::Mat enhanceResultImage(const cv::Mat& src) = 0; // 增强结果图像
     virtual cv::Mat apply3x3Calibration(const cv::Mat& originalImage) = 0; // 应用3x3数据进行图像裁剪
     virtual bool isCalibrationLoaded() const = 0;// 判断相机标定数据是否加载成功
     virtual bool m_isTiltLoaded() const = 0; // 判断透视变换数据是否加载成功

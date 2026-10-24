@@ -32,11 +32,11 @@ public:
         double squareMm    = 6.0;
 
         // 输出图像的物理范围（mm），须 >= 标定板物理尺寸
-        double outWidthMm  = 110.0;
-        double outHeightMm = 110.0;
+        double outWidthMm  = 130.0;
+        double outHeightMm = 130.0;
 
-        // 输出分辨率
-        double pixPerMm    = 10.0;   // 10 px/mm → 1100×1100 px
+        // 输出分辨率。标定时会根据检测到的棋盘格角点自适应更新该值。
+        double pixPerMm    = 10.0;
 
         // 角点数
         int innerCols() const { return gridCols - 1; }

@@ -291,6 +291,7 @@ bool TemplateManager::learnTemplate(const cv::Mat& src, const cv::Mat& templateM
 std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, const FindMatchParams& params) const 
 {
     std::vector<MatchResult> results; // 结果集合
+    std::vector<MatchResult> acceptedResults; // 按层级扫描顺序保留，用于跨层去重
     if (!m_valid || src.empty()) 
     {
         return results;
@@ -332,6 +333,7 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
     std::set<int> executedLevels;
     int maxCount = std::max(1, params.maxCount); //至少返回一个结果
     const int scanUpperLevel = std::min(m_pyramidLevel, kMaxPyramidScanLevel);
+    std::vector<std::vector<MatchResult>> resultsByLevel(static_cast<size_t>(scanUpperLevel) + 1);
 
     cv::Point offset(0, 0); // 坐标偏移量为零,直接在全图上匹配
     for (size_t slot = 0; slot < m_matchEngines.size(); ++slot) {
@@ -401,15 +403,16 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
             item.center = match.transPt(matchCenter);
             item.center.x *= scaleToOriginal;
             item.center.y *= scaleToOriginal;
-            item.Roiarea = rect = boundingRect(item.transformedFeaturePoints);;
+            item.Roiarea = rect;
 
             if (!item.transformedFeaturePoints.empty()) {
                 cv::RotatedRect rr = cv::minAreaRect(item.transformedFeaturePoints);
                 item.featureSize = rr.size;
                 item.rotatedRect = rr;
-                if (params.centerType == MatchCenterType::SceneCenter) {
-                    // 透视残差下优先使用匹配后点集的几何中心，避免单一 scale/angle 中心偏移。
-                    item.center = rr.center;
+                item.Roiarea = cv::boundingRect(item.transformedFeaturePoints) &
+                                cv::Rect(0, 0, imageSize.width, imageSize.height);
+                if (item.Roiarea.width <= 0 || item.Roiarea.height <= 0) {
+                    continue;
                 }
             } else {
                 item.featureSize = cv::Size2f(static_cast<float>(rect.width), static_cast<float>(rect.height));
@@ -422,20 +425,31 @@ std::vector<MatchResult> TemplateManager::matchTemplate(const cv::Mat& src, cons
             const double diag = std::hypot(static_cast<double>(item.featureSize.width),
                                            static_cast<double>(item.featureSize.height));
             const double distanceThreshold = std::max(10.0, diag * 0.3);
-            if (isDuplicateMatch(item, results, distanceThreshold)) {
+            if (isDuplicateMatch(item, acceptedResults, distanceThreshold)) {
                 continue;
             }
 
-            results.push_back(item);
+            acceptedResults.push_back(item);
+            if (level >= 0 && static_cast<size_t>(level) < resultsByLevel.size()) {
+                resultsByLevel[static_cast<size_t>(level)].push_back(item);
+            }
         }
         qInfo().noquote() << QStringLiteral("金字塔层 %1 匹配候选数: %2").arg(level).arg(static_cast<int>(matches.size()));
     }
 
-    std::sort(results.begin(), results.end(), [](const MatchResult& lhs, const MatchResult& rhs) {
-        return lhs.score > rhs.score;
-    });
-    if (static_cast<int>(results.size()) > maxCount) {
-        results.resize(maxCount);
+    for (auto& levelResults : resultsByLevel) {
+        std::sort(levelResults.begin(), levelResults.end(), [](const MatchResult& lhs, const MatchResult& rhs) {
+            return lhs.score > rhs.score;
+        });
+        for (const auto& item : levelResults) {
+            if (static_cast<int>(results.size()) >= maxCount) {
+                break;
+            }
+            results.push_back(item);
+        }
+        if (static_cast<int>(results.size()) >= maxCount) {
+            break;
+        }
     }
 
     if (!results.empty()) {

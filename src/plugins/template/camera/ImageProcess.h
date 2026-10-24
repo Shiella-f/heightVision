@@ -20,6 +20,7 @@ public:
     
     cv::Mat CalibImage(cv::Mat &originalImage) override;//去畸变图像，输入原始图像，输出去畸变后的图像
     cv::Mat WarPerspective(cv::Mat& originalImage) override; // 校正图像，输入单应性矩阵，输出校正后的图像
+    cv::Mat enhanceResultImage(const cv::Mat& src) override;
     cv::Mat apply3x3Calibration(const cv::Mat& originalImage) override; // 应用3x3数据进行图像裁剪
 
     bool isCalibrationLoaded() const override{ return m_isCameraCalibLoaded; }

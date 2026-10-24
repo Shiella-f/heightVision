@@ -24,6 +24,7 @@ public:
     bool setCompositionMode(CompositionMode m) override;
     bool setShapeMode(ShapeMode s) override;
     bool setPenWidth(int w) override;
+    bool saveRoiMask(const QString& filePath) const override;
 
 
     explicit MatchScene(QObject *parent = nullptr);

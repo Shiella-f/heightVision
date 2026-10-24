@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <QWidget>
 #include <QPointF>
-#include <QRegExpValidator>
+
 #include "../Core/Warpective.h"
 #include "../Scene/CameraWarpectiveScene.h"
 #include "CameraWarptivePort.h"
