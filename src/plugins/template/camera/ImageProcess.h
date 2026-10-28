@@ -39,6 +39,7 @@ private:
     void resetPhysicalOffset();
     cv::Mat m_cameraMatrix;
     cv::Mat m_distCoeffs;
+    cv::Mat m_newCameraMatrix;
     cv::Mat m_map1, m_map2;
     bool m_isCameraCalibLoaded = false;
     cv::Mat WarPerspectiveMatrix; // 存储单应性矩阵

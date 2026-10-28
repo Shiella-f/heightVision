@@ -27,11 +27,19 @@ protected:
 class CalibWarptivePort{
 public:
     virtual ~CalibWarptivePort() = default;
-    virtual bool Calibrate3x3(const cv::Mat& image) = 0;//3x3标定
-    virtual bool Calibrate9x9(const cv::Mat& image) = 0;//9x9标定
-    virtual bool Save3x3Result(const QString savePath) = 0;// 保存3x3标定结果
-    virtual QVector<QPointF> Get9x9Points() const = 0; // 获取9x9点坐标
-    //virtual bool Save9x9Result(const QString savePath) = 0;// 保存9x9标定结果
+    // 加载独立 YAML 参数包。失败时使旧参数和旧结果失效。
+    virtual bool LoadCalibrationData(const QString& path) = 0;
+    // gridSize: 方阵行列数，允许 3、5、7……65。支持 CV_8UC1/3/4。
+    // 输入相机原图；须先加载有效参数包，图像尺寸须与参数包一致。
+    // 每次调用清除上次结果；只有完整点阵与规格一致且坐标换算成功时返回 true。
+    virtual bool Calibrate(const cv::Mat& image, int gridSize) = 0;
+    virtual bool Calibrate(const QString& imagePath, int gridSize) = 0;
+    // 原图像素坐标：左上原点，X 向右、Y 向下，按网格逐行、行内从左到右排序。
+    virtual QVector<QPointF> GetPoints() const = 0;
+    // 单位 mm，沿用透视标定的原点和方向，与 GetPoints() 逐点对应。
+    virtual QVector<QPointF> GetPhysicalPoints() const = 0;
+    // CSV: Index,PixelX,PixelY,PhysicalXmm,PhysicalYmm；保留六位小数。
+    virtual bool SaveResult(const QString& savePath) const = 0;
 
     virtual IMirrorScene* getScene() const = 0;//返回场景指针
 protected:

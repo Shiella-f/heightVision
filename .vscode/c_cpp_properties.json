@@ -10,11 +10,8 @@
         "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtCore",
         "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtNetwork",
         "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtMultimedia",
-        "C:/opencv/Sources/include",
-        "C:/opencv/build/install/include",
-        "C:/Program Files (x86)/MVS/Development/Includes",
-        "C:/Basler/Development/include",
-        "C:/Basler/Development"
+        "C:/Qt5.12.4/5.12.4/msvc2017_64/include/QtMultimediaWidgets",
+        "C:/Program Files (x86)/MVS/Development/Includes"
       ],
       "defines": [
         "WIN32",

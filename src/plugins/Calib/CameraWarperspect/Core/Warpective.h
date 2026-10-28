@@ -4,6 +4,8 @@
 #include <vector>
 #include <stdexcept>
 #include "../Function/CameraWarptivePort.h"
+#include "../../BoardDetection.h"
+#include "../../PerspectiveFitReport.h"
 
 class CameraCorrector {
 public:
@@ -12,14 +14,18 @@ public:
     CameraCorrector(const Config& cfg = Config{});
     ~CameraCorrector() = default;
     bool computeMap(const cv::Mat& undistImg);
+    bool computeMap(const calibration::BoardObservation& observation, cv::Size imageSize);
     bool warp(const cv::Mat& undistImg, cv::Mat& dst) const;
 
     // 直接提供单应矩阵
     void setHomography(const cv::Mat& H) { H_ = H.clone(); hasMap_ = !H_.empty(); }
     cv::Mat homography() const { return H_.clone(); }
+    cv::Mat boardHomography()const{return boardH_.clone();}
 
     bool    ready()      const { return hasMap_; }
     Config  config()     const { return cfg_; }
+    const std::string& lastError() const { return error_; }
+    const calibration::PerspectiveFitReport& fitReport() const { return report_; }
 
     // mm/px，用于量测
     double mmPerPixel() const { return 1.0 / cfg_.pixPerMm; }
@@ -45,17 +51,12 @@ public:
 private:
     Config  cfg_;
     cv::Mat H_;        //单应矩阵
+    cv::Mat boardH_;
     bool    hasMap_ = false;
+    std::string error_;
+    calibration::PerspectiveFitReport report_;
     cv::Point2d physicalOffsetMm_ = {0.0, 0.0}; // 二次初始化得到的物理坐标偏移
 
-    //理想角点位置（单位：像素）
-    std::vector<cv::Point2f> makeTargetPts() const;
-
-    // 在图像中检测内角点（亚像素）
-    bool detectCorners(const cv::Mat& img,
-                       std::vector<cv::Point2f>& corners) const;
-
-    // 根据检测到的棋盘格角点估计当前图像可支持的输出分辨率。
-    double estimateAdaptivePixPerMm(const std::vector<cv::Point2f>& corners,
+    double estimateAdaptivePixPerMm(const calibration::BoardObservation& observation,
                                     const cv::Size& imageSize) const;
 };

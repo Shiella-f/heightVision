@@ -2,6 +2,7 @@
 #include <QString>
 #include <QImage>
 #include <QVector>
+#include <QJsonObject>
 #include <opencv2/opencv.hpp>
 #include <QtCore/qglobal.h>
 
@@ -35,7 +36,7 @@ public:
     /**
      * @brief Calibrate 进行相机标定
      * @param imagePaths 输入的图片路径列表
-     * @param boardSize 棋盘格内角点的行列数 (width, height)
+     * @param boardSize 普通棋盘为内角点(列,行)，ChArUco 为方格(列,行)
      * @param squareSize 方格尺寸 (mm)
      * @param useCharuco 是否使用 ChArUco 标定
      * @param markerSize ChArUco 中标记的尺寸 (mm)，仅在 useCharuco=true 时有效
@@ -44,11 +45,13 @@ public:
      */
     virtual bool Calibrate(QVector<QString> imagePaths, cv::Size boardSize, float squareSize, 
                             bool useCharuco = false, const float markerSize = 0.0f, 
-                            const int dictionaryId = -1) = 0;//暂时只支持棋盘格标定
+                            const int dictionaryId = -1) = 0;
     virtual bool SaveResult(const QString savePath) = 0;// 保存标定结果,后缀使用.XML或者.YAML
     virtual CalibData getCalibData() const = 0; // 获取标定结果数据
     virtual bool isCalibrated() const = 0; // 是否已完成标定
     virtual ICameraCalibScene* getScene() const = 0;//返回场景指针
+    // Complete board JSON, including custom IDs and detection thresholds. Legacy overload unchanged.
+    virtual bool CalibrateBoard(const QVector<QString>& imagePaths,const QJsonObject& board) = 0;
 protected:
     CameraCalibPort() = default;
 };

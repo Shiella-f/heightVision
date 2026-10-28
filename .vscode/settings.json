@@ -1,23 +1,26 @@
 {
   "cmake.generator": "Visual Studio 17 2022",
+  "cmake.platform": "x64",
+  "cmake.toolset": "v143",
   "cmake.buildDirectory": "${workspaceFolder}/build",
-   "cmake.configureArgs": [
-    "-A", "x64",
-    "-T", "v142",
-    "-DCMAKE_VS_PLATFORM_TOOLSET=v142",
-    "-DCMAKE_PREFIX_PATH=C:/Qt5.12.4/5.12.4/msvc2017_64/lib/cmake"
+  "cmake.configureArgs": [
+    "-DCMAKE_PREFIX_PATH=C:/Qt6/6.11.0/msvc2022_64"
   ],
+  "cmake.configureSettings": {
+    "CMAKE_PREFIX_PATH": "C:/Qt6/6.11.0/msvc2022_64",
+    "CMAKE_MAKE_PROGRAM": ""
+  },
   "cmake.configureOnOpen": false,
   "cmake.configureEnvironment": {
-    "VCToolsVersion": "14.29.30133",
-    "VCToolsInstallDir": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC\\14.29.30133"
+    "VCToolsVersion": "14.44.35207",
+    "VCToolsInstallDir": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC\\14.44.35207"
   },
   "cmake.buildEnvironment": {
-    "VCToolsVersion": "14.29.30133",
-    "VCToolsInstallDir": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC\\14.29.30133"
+    "VCToolsVersion": "14.44.35207",
+    "VCToolsInstallDir": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Tools\\MSVC\\14.44.35207"
   },
   "cmake.environment": {
-    "PATH": "C:\\Qt5.12.4\\5.12.4\\msvc2017_64\\bin;${env:PATH}"
+    "PATH": "C:\\Qt6\\6.11.0\\msvc2022_64\\bin;${env:PATH}"
   },
   "files.associations": {
     "vector": "cpp",

@@ -5,31 +5,34 @@
       "name": "Launch Qt App (Debug)",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/Debug/qt_vscode_app.exe",
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PATH": "C:\\5.12.4\\msvc2017_64\\bin;${env:PATH}"
-      },
-      "stopAtEntry": false,
-      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\a5e912974ed4406c0b5034ba3b547411\\tonka3000.qtvsctools\\qt.natvis.xml"
-    },
-    {
-      "name": "Launch Qt App (Release)",
-      "type": "cppvsdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}/build/Release/qt_vscode_app.exe",
+      "program": "C:/Users/m1760/Desktop/heightvision_mainwindow/build/new.exe",
       "args": [],
       "cwd": "${workspaceFolder}",
       "environment": [
         {
           "name": "PATH",
-          "value": "C:\\Qt\\5.15.2\\msvc2019_64\\bin;${env:PATH}"
+          "value": "C:\\Qt5.12.4\\5.12.4\\msvc2017_64\\bin;${env:PATH}"
+        }
+      ],
+      "stopAtEntry": false,
+      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\ea5929ba556dfe0ccbc4abbaff68c295\\tonka3000.qtvsctools\\qt.natvis.xml"
+    },
+    {
+      "name": "Launch Qt App (Release)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "C:/Users/m1760/Desktop/heightvision_mainwindow/build/Release/new.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "C:\\Qt5.12.4\\5.12.4\\msvc2017_64\\bin;${env:PATH}"
         }
       ],
       "stopAtEntry": false,
       "preLaunchTask": "CMake Build (Release)",
-      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\a5e912974ed4406c0b5034ba3b547411\\tonka3000.qtvsctools\\qt.natvis.xml"
+      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\ea5929ba556dfe0ccbc4abbaff68c295\\tonka3000.qtvsctools\\qt.natvis.xml"
     }
   ]
 }

@@ -1,8 +1,9 @@
-﻿#include "ImageProcess.h"
+#include "ImageProcess.h"
 #include <QTimer>
 #include <QDebug>
 #include <QMessageBox>
 #include <QFileDialog>
+#include "../../Calib/MeasurementCalibration.h"
 
 ImageProcess::ImageProcess()
 {
@@ -12,18 +13,19 @@ cv::Mat ImageProcess::CalibImage(cv::Mat &originalImage)
 {
     if(!originalImage.empty())
     {
-        cv::Mat frame = originalImage.clone();
+        cv::Mat frame = originalImage;
         // 2. 如果已加载标定数据，进行去畸变
         cv::Mat displayedFrame = frame;
         if (m_isCameraCalibLoaded) 
         {
             // 如果图像尺寸改变，需要重新初始化映射表
-            if (frame.size() != m_calibImageSize) 
+            if (frame.size() != m_calibImageSize) {
+                qWarning()<<"相机原图尺寸与标定参数不一致，未执行去畸变。";return {};
+            }
+            if (m_map1.empty() || m_map2.empty())
             {
-                m_calibImageSize = frame.size();
                 // 计算新的相机矩阵，alpha=0 裁剪黑边，alpha=1 保留所有像素
-                cv::Mat newCameraMatrix = cv::getOptimalNewCameraMatrix(m_cameraMatrix, m_distCoeffs, m_calibImageSize, 1, m_calibImageSize, 0);
-                cv::initUndistortRectifyMap(m_cameraMatrix, m_distCoeffs, cv::Mat(), newCameraMatrix, m_calibImageSize, CV_16SC2, m_map1, m_map2);
+                cv::initUndistortRectifyMap(m_cameraMatrix, m_distCoeffs, cv::Mat(), m_newCameraMatrix, m_calibImageSize, CV_16SC2, m_map1, m_map2);
             }
             cv::Mat undistortedFrame;
             cv::remap(frame, undistortedFrame, m_map1, m_map2, cv::INTER_LINEAR);
@@ -76,44 +78,16 @@ cv::Mat ImageProcess::apply3x3Calibration(const cv::Mat& originalImage)
     }
 }
 
-bool ImageProcess::loadCameraCalibration(const QString& calibFilePath){
-    if(calibFilePath.isEmpty()) {
-        qInfo().noquote() << "未选择相机标定文件，跳过该步骤";
-        m_isCameraCalibLoaded = false;
-        return false;
+bool ImageProcess::loadCameraCalibration(const QString& path) {
+    m_isCameraCalibLoaded=false;m_map1.release();m_map2.release();
+    m_cameraMatrix.release();m_distCoeffs.release();m_newCameraMatrix.release();m_calibImageSize={};
+    MeasurementCalibration calibration;
+    if(!calibration.loadCamera(path)){
+        qWarning()<<"?????????????????K?D?K_new????????";return false;
     }
-    QFile file(calibFilePath);
-    if (!file.exists()) {
-        qInfo().noquote() << "相机标定文件不存在，跳过该步骤";
-        m_isCameraCalibLoaded = false;
-        return false;
-    } else {
-        try {
-            cv::FileStorage fs(calibFilePath.toStdString(), cv::FileStorage::READ);
-            if (!fs.isOpened()) {
-                qInfo().noquote() << "无法打开相机标定文件";
-                m_isCameraCalibLoaded = false;
-                return false;
-            } else {
-                fs["camera_matrix"] >> m_cameraMatrix;
-                fs["distortion_coefficients"] >> m_distCoeffs;
-                fs.release();
-                if (m_cameraMatrix.empty() || m_distCoeffs.empty()) {
-                    qInfo().noquote() << "相机标定文件数据无效";
-                    m_isCameraCalibLoaded = false;
-                    return false;
-                } else {
-                    m_isCameraCalibLoaded = true;
-                    return true;
-                    qInfo().noquote() << "相机标定数据加载成功！";
-                }
-            }
-        } catch (cv::Exception& e) {
-            qInfo().noquote() << QString("加载标定数据异常: %1").arg(e.what());
-            m_isCameraCalibLoaded = false;
-            return false;
-        }
-    }
+    m_cameraMatrix=calibration.cameraMatrix;m_distCoeffs=calibration.distCoeffs;
+    m_newCameraMatrix=calibration.newCameraMatrix;m_calibImageSize=calibration.imageSize;
+    m_isCameraCalibLoaded=true;return true;
 }
 
 bool ImageProcess::loadTiltCalibration(const QString& homographyPath)

@@ -1,14 +1,17 @@
-﻿#include "CameraCalibFunction.h"
+#include "CameraCalibFunction.h"
 #include <QDebug>
 #include <QApplication>
 #include <QThread>
 #include <QDateTime>
 #include <QFile>
+#include <QSaveFile>
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <iomanip>
 #include <QDebug>
 #include <opencv2/opencv.hpp>
+#include "../../BoardConfiguration.h"
 
 using namespace std;
 using namespace cv;
@@ -17,6 +20,7 @@ CameraCalibFunction::CameraCalibFunction(QWidget *parent)
     : m_scene(nullptr)
 {
     m_scene = new CameraCalibScene();
+    m_calib.setLogCallback([this](const QString& message){emit calibrationLog(message);});
     cv::Mat m = cv::Mat::zeros(3,3,CV_8UC1);
 }
 
@@ -24,9 +28,23 @@ CameraCalibFunction::~CameraCalibFunction()
 {
 }
 
+bool CameraCalibFunction::CalibrateBoard(const QVector<QString>& paths,const QJsonObject& board){
+    QJsonObject normalized;QString error;
+    if(!calibration::NormalizeBoardConfiguration(board,normalized,error)){
+        m_isCalibrated=false;m_result={};m_imageSize={};m_pendingBoard={};m_imagePoints.clear();m_objectPoints.clear();emit calibrationLog(error);return false;
+    }
+    m_pendingBoard=normalized;
+    return Calibrate(paths,{normalized["squares_x"].toInt(),normalized["squares_y"].toInt()},float(normalized["square_length"].toDouble()));
+}
 bool CameraCalibFunction::Calibrate(QVector<QString> imagePaths, cv::Size boardSize, float squareSize,
                                         bool useCharuco, const float markerSize, const int dictionaryId)
 {
+    m_isCalibrated = false;
+    isSaved = false;
+    m_imageSize = {};
+    m_result = {};
+    m_imagePoints.clear();
+    m_objectPoints.clear();
     cv::Mat cameraMatrix, distCoeffs;
     std::vector<cv::Mat> rvecs, tvecs;
     std::vector<std::vector<cv::Point2f>> imagePoints;
@@ -34,20 +52,24 @@ bool CameraCalibFunction::Calibrate(QVector<QString> imagePaths, cv::Size boardS
     std::vector<std::string> imagePathsStr;
 
     for (const auto& path : imagePaths) {
-        imagePathsStr.push_back(path.toLocal8Bit().constData());
+        imagePathsStr.push_back(path.toUtf8().toStdString());
     }
 
 
     // 判断是否使用 ChArUco
     double rms = -1.0;
-    if (useCharuco) {
+    const auto configured=m_pendingBoard;m_pendingBoard={};
+    if(!configured.isEmpty()){
+        rms=m_calib.runConfigured(imagePathsStr,configured,cameraMatrix,distCoeffs,rvecs,tvecs,imagePoints,objectPoints);
+    }else if (useCharuco) {
         rms = m_calib.runCalibrationChArUco(imagePathsStr, boardSize, squareSize, markerSize, dictionaryId, 
                                             cameraMatrix, distCoeffs, rvecs, tvecs, imagePoints, objectPoints);
     } else {
         rms = m_calib.runCalibration(imagePathsStr, boardSize, squareSize, cameraMatrix, distCoeffs, rvecs, tvecs, imagePoints, objectPoints);
     }
 
-    if (rms >= 0) {
+    if (std::isfinite(rms) && rms >= 0 && m_calib.imageSize().area() > 0) {
+        m_imageSize = m_calib.imageSize();
         // 保存结果到成员变量
         m_isCalibrated = true;
         m_result.cameraMatrix = cameraMatrix;
@@ -55,8 +77,8 @@ bool CameraCalibFunction::Calibrate(QVector<QString> imagePaths, cv::Size boardS
         m_result.rvecs = rvecs;
         m_result.tvecs = tvecs;
         m_result.rms = rms;
-        imagePoints = imagePoints;
-        objectPoints = objectPoints;
+        m_imagePoints = imagePoints;
+        m_objectPoints = objectPoints;
 
         QString resultStr;
         resultStr += QString("标定成功！\n");
@@ -84,44 +106,29 @@ bool CameraCalibFunction::Calibrate(QVector<QString> imagePaths, cv::Size boardS
 
 bool CameraCalibFunction::SaveResult(const QString savePath)
 {
-    if (!m_isCalibrated) return false;
-    if (savePath.isEmpty()) return false;
-    // 根据后缀名判断保存格式
-    if (savePath.endsWith(".xml") || savePath.endsWith(".yaml") || savePath.endsWith(".yml")) {
-        try {
-            cv::FileStorage fs(savePath.toStdString(), cv::FileStorage::WRITE);
-            
-            // 1. 标定时间
-            fs << "calibration_time" << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss").toStdString();
-            
-            // 2. 图像尺寸
-            fs << "image_width" << m_imageSize.width;
-            fs << "image_height" << m_imageSize.height;
-            
-            // 3. 相机内参矩阵
-            fs << "camera_matrix" << m_result.cameraMatrix;
-            
-            // 4. 畸变系数
-            fs << "distortion_coefficients" << m_result.distCoeffs;
-            
-            // 5. 重投影误差
-            fs << "rms_error" << m_result.rms;
-            
-            // 6. 外参数 (每张图片的旋转和平移)
-            fs << "rvecs" << m_result.rvecs;
-            fs << "tvecs" << m_result.tvecs;
-
-            // 7. 可选：计算并保存优化后的新相机矩阵 (New Camera Matrix)
-            // alpha=1 保留所有像素，alpha=0 裁剪掉无效像素
-            cv::Mat newCameraMatrix = cv::getOptimalNewCameraMatrix(m_result.cameraMatrix, m_result.distCoeffs, m_imageSize, 1, m_imageSize, 0);
-            fs << "new_camera_matrix" << newCameraMatrix;
-
-            fs.release();
-            isSaved = true;
-        } catch (const cv::Exception& e) {
-            isSaved = false;
-        }
-    }
+    isSaved = false;
+    if (!m_isCalibrated || m_imageSize.width <= 0 || m_imageSize.height <= 0 || savePath.isEmpty()) return false;
+    const bool xml = savePath.endsWith(".xml", Qt::CaseInsensitive);
+    if (!xml && !savePath.endsWith(".yml", Qt::CaseInsensitive) && !savePath.endsWith(".yaml", Qt::CaseInsensitive)) return false;
+    try {
+        cv::FileStorage fs("", cv::FileStorage::WRITE | cv::FileStorage::MEMORY
+                           | (xml ? cv::FileStorage::FORMAT_XML : cv::FileStorage::FORMAT_YAML));
+        fs << "calibration_time" << QDateTime::currentDateTime().toString(Qt::ISODate).toStdString()
+           << "image_width" << m_imageSize.width << "image_height" << m_imageSize.height
+           << "camera_matrix" << m_result.cameraMatrix << "distortion_coefficients" << m_result.distCoeffs
+           << "rms_error" << m_result.rms << "rvecs" << m_result.rvecs << "tvecs" << m_result.tvecs;
+        const cv::Mat newCameraMatrix = cv::getOptimalNewCameraMatrix(m_result.cameraMatrix,
+            m_result.distCoeffs, m_imageSize, 1, m_imageSize);
+        fs << "new_camera_matrix" << newCameraMatrix;
+        fs << "calibration_scope" << "camera_numeric_solution"
+           << "physical_validation_status" << "unverified"
+           << "solver" << "multistart_200_iterations";
+        const auto contents = fs.releaseAndGetString();
+        QSaveFile file(savePath);
+        isSaved = file.open(QIODevice::WriteOnly)
+            && file.write(contents.data(), static_cast<qint64>(contents.size())) == static_cast<qint64>(contents.size())
+            && file.commit();
+    } catch (const cv::Exception&) { isSaved = false; }
     return isSaved;
 }
 

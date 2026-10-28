@@ -1,248 +1,114 @@
-﻿
-#include "Warpective.h"
+﻿#include "Warpective.h"
+#include <QDebug>
+#include <QElapsedTimer>
 #include <algorithm>
 #include <cmath>
-#include <iostream>
-#include <numeric>
-#include <stdexcept>
-#include <QDebug>
+#include <map>
+#include <QSaveFile>
+#include "../../BoardConfiguration.h"
 
 namespace {
-double medianValue(std::vector<double> values)
-{
-    if (values.empty())
-        return 0.0;
-
-    const size_t mid = values.size() / 2;
-    std::nth_element(values.begin(), values.begin() + mid, values.end());
-    double median = values[mid];
-
-    if (values.size() % 2 == 0)
-    {
-        std::nth_element(values.begin(), values.begin() + mid - 1, values.end());
-        median = (median + values[mid - 1]) * 0.5;
+double medianValue(std::vector<double> values) {
+    if(values.empty())return 0;
+    auto mid=values.begin()+values.size()/2;
+    std::nth_element(values.begin(),mid,values.end());return *mid;
+}
+calibration::ResidualStatistics statistics(std::vector<double> values) {
+    calibration::ResidualStatistics result;
+    if(values.empty()) return result;
+    for(double value:values) result.rms+=value*value;
+    result.rms=std::sqrt(result.rms/values.size());
+    std::sort(values.begin(),values.end());
+    result.p95=values[size_t(std::ceil(values.size()*0.95))-1];result.maximum=values.back();
+    return result;
+}
+calibration::BoardSpec boardSpec(const CameraWarptivePort::Config& cfg) {
+    calibration::BoardSpec spec;
+    if(!cfg.boardConfiguration.isEmpty()){
+        QString error;if(!calibration::parseBoardConfiguration(cfg.boardConfiguration,spec,error))throw std::invalid_argument(error.toStdString());
+        return spec;
     }
-
-    return median;
+    spec.type=cfg.boardType==CameraWarptivePort::BoardType::Charuco?calibration::BoardType::Charuco:calibration::BoardType::Chessboard;
+    spec.squares={cfg.gridCols,cfg.gridRows};spec.squareMm=cfg.squareMm;spec.markerMm=cfg.markerMm;spec.dictionaryId=cfg.dictionaryId;
+    return spec;
 }
 }
-
-CameraCorrector::CameraCorrector(const Config& cfg) : cfg_(cfg)
-{
-    if (cfg_.innerCols() < 2 || cfg_.innerRows() < 2)
-        throw std::invalid_argument("棋盘格至少需要 3×3 格子");
-    if (cfg_.squareMm <= 0)
-        throw std::invalid_argument("方格尺寸须为正数");
-    if (cfg_.outWidthMm  < cfg_.gridCols * cfg_.squareMm ||
-        cfg_.outHeightMm < cfg_.gridRows * cfg_.squareMm)
-        throw std::invalid_argument("输出尺寸小于标定板物理尺寸");
+CameraCorrector::CameraCorrector(const Config& cfg):cfg_(cfg) {
+    if((cfg.inputStage!=CameraWarptivePort::InputStage::Raw && cfg.inputStage!=CameraWarptivePort::InputStage::Undistorted)
+        || !std::isfinite(cfg.fitToleranceCells) || cfg.fitToleranceCells<0.001 || cfg.fitToleranceCells>0.10)
+        throw std::invalid_argument("invalid input stage or fit tolerance (0.001..0.10 cells)");
+    if((cfg.boardType!=CameraWarptivePort::BoardType::Chessboard && cfg.boardType!=CameraWarptivePort::BoardType::Charuco)
+        || !boardSpec(cfg).valid())throw std::invalid_argument("invalid board parameters");
+    if(!std::isfinite(cfg.outWidthMm)||!std::isfinite(cfg.outHeightMm)
+       ||cfg.outWidthMm<=0||cfg.outHeightMm<=0
+       ||(!cfg.useOutputRegion&&(cfg.outWidthMm<cfg.gridCols*cfg.squareMm||cfg.outHeightMm<cfg.gridRows*cfg.squareMm)))
+        throw std::invalid_argument("output smaller than board dimensions");
 }
-
-
-std::vector<cv::Point2f> CameraCorrector::makeTargetPts() const
-{
-    const double mx = cfg_.marginXmm() * cfg_.pixPerMm;
-    const double my = cfg_.marginYmm() * cfg_.pixPerMm;
-    const double sp = cfg_.squareMm   * cfg_.pixPerMm;
-
-    std::vector<cv::Point2f> pts;
-    pts.reserve(cfg_.innerCols() * cfg_.innerRows());
-
-    for (int r = 0; r < cfg_.innerRows(); ++r)
-        for (int c = 0; c < cfg_.innerCols(); ++c)
-            pts.emplace_back(
-                (float)(mx + (c + 1) * sp),
-                (float)(my + (r + 1) * sp));
-
-    return pts;
-}
-
-bool CameraCorrector::detectCorners(const cv::Mat& img,
-                                    std::vector<cv::Point2f>& corners) const
-{
-    cv::Mat gray;
-    if (img.channels() > 1)
-        cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
-    else
-        gray = img;
-
-    const cv::Size boardSz(cfg_.innerCols(), cfg_.innerRows());
-
-    bool found = cv::findChessboardCorners(
-        gray, boardSz, corners,
-        cv::CALIB_CB_ADAPTIVE_THRESH |
-        cv::CALIB_CB_NORMALIZE_IMAGE);
-
-    if (!found)
-        return false;
-
-    // 亚像素精化
-    cv::cornerSubPix(
-        gray, corners,
-        cv::Size(11, 11), cv::Size(-1, -1),
-        cv::TermCriteria(
-            cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER,
-            50, 1e-4));
-
-    return (int)corners.size() == cfg_.innerCols() * cfg_.innerRows();
-}
-
-double CameraCorrector::estimateAdaptivePixPerMm(
-    const std::vector<cv::Point2f>& corners,
-    const cv::Size& imageSize) const
-{
-    const int cols = cfg_.innerCols();
-    const int rows = cfg_.innerRows();
-    if ((int)corners.size() != cols * rows || cols < 2 || rows < 2)
-        return 0.0;
-
-    std::vector<double> horizontalSpacings;
-    std::vector<double> verticalSpacings;
-    horizontalSpacings.reserve(rows * (cols - 1));
-    verticalSpacings.reserve((rows - 1) * cols);
-
-    for (int r = 0; r < rows; ++r)
-    {
-        for (int c = 0; c < cols - 1; ++c)
-        {
-            const int idx = r * cols + c;
-            horizontalSpacings.push_back(cv::norm(corners[idx + 1] - corners[idx]));
+double CameraCorrector::estimateAdaptivePixPerMm(const calibration::BoardObservation& obs,const cv::Size& size) const {
+    std::map<int,size_t> byId;
+    for(size_t i=0;i<obs.ids.size();++i)byId.emplace(obs.ids[i],i);
+    std::vector<double> horizontal,vertical;
+    for(const auto& entry:byId) {
+        int id=entry.first;size_t i=entry.second;
+        for(int axis=0;axis<2;++axis) {
+            if(axis==0 && id%cfg_.innerCols()==cfg_.innerCols()-1)continue;
+            auto it=byId.find(id+(axis==0?1:cfg_.innerCols()));
+            if(it==byId.end())continue;
+            auto j=it->second;
+            double mm=cv::norm(obs.objectPoints[i]-obs.objectPoints[j]);
+            if(mm>0)(axis==0?horizontal:vertical).push_back(cv::norm(obs.pixels[i]-obs.pixels[j])/mm);
         }
     }
-
-    for (int r = 0; r < rows - 1; ++r)
-    {
-        for (int c = 0; c < cols; ++c)
-        {
-            const int idx = r * cols + c;
-            verticalSpacings.push_back(cv::norm(corners[idx + cols] - corners[idx]));
-        }
-    }
-
-    const double pxPerMmX = medianValue(horizontalSpacings) / cfg_.squareMm;
-    const double pxPerMmY = medianValue(verticalSpacings) / cfg_.squareMm;
-    double adaptivePixPerMm = std::min(pxPerMmX, pxPerMmY);
-
-    if (cfg_.outWidthMm > 0.0 && cfg_.outHeightMm > 0.0 &&
-        imageSize.width > 0 && imageSize.height > 0)
-    {
-        const double sourceLimit = std::min(
-            imageSize.width / cfg_.outWidthMm,
-            imageSize.height / cfg_.outHeightMm);
-        adaptivePixPerMm = std::min(adaptivePixPerMm, sourceLimit);
-    }
-
-    return adaptivePixPerMm;
+    double x=medianValue(horizontal),y=medianValue(vertical);
+    double scale=x>0&&y>0?std::min(x,y):std::max(x,y);
+    return std::min(scale,std::min(size.width/cfg_.outWidthMm,size.height/cfg_.outHeightMm));
 }
-
-bool CameraCorrector::computeMap(const cv::Mat& undistImg)
-{
-    if (undistImg.empty())
-    {
-        qDebug() << "[CameraCorrector] 输入图像为空\n";
-        return false;
+bool CameraCorrector::computeMap(const cv::Mat& undistImg) {
+    hasMap_=false;H_.release();
+    calibration::BoardObservation observation;
+    return calibration::detectBoard(undistImg,boardSpec(cfg_),observation)
+        &&computeMap(observation,undistImg.size());
+}
+bool CameraCorrector::computeMap(const calibration::BoardObservation& obs,cv::Size size) {
+    hasMap_=false;H_.release();error_.clear();report_={};QElapsedTimer timer;timer.start();
+    if(obs.pixels.size()<4 || obs.pixels.size()!=obs.objectPoints.size() || obs.ids.size()!=obs.pixels.size()) {
+        error_="对应点数量不足或像素/物理点不匹配";return false;
     }
-
-    // 检测所有内角点
-    std::vector<cv::Point2f> detectedPts;
-    if (!detectCorners(undistImg, detectedPts))
-    {
-        qDebug() << "[CameraCorrector] 棋盘格检测失败，"
-                 << "请确保图像已去畸变且棋盘格完整可见。\n";
-        return false;
-    }
-
-    const double adaptivePixPerMm =
-        estimateAdaptivePixPerMm(detectedPts, undistImg.size());
-    if (!(adaptivePixPerMm > 0.0) || !std::isfinite(adaptivePixPerMm))
-    {
-        qDebug() << "[CameraCorrector] 自适应输出分辨率估计失败。\n";
-        return false;
-    }
-
-    cfg_.pixPerMm = adaptivePixPerMm;
-    qDebug() << "[CameraCorrector] 自适应输出分辨率: "
-             << QString::number(cfg_.pixPerMm, 'f', 3) << "px/mm\n";
-
-    //生成目标点
-    std::vector<cv::Point2f> targetPts = makeTargetPts();
-    CV_Assert(detectedPts.size() == targetPts.size());
-
-    qDebug() << "[CameraCorrector] 检测到 " << detectedPts.size()
-             << " 个内角点\n";
-
-    // RANSAC 全角点单应估计
+    if(!cfg_.useOutputRegion)cfg_.pixPerMm=estimateAdaptivePixPerMm(obs,size);
+    if(!std::isfinite(cfg_.pixPerMm)||cfg_.pixPerMm<=0){error_="无法估计有效的像素/毫米比例";return false;}
+    std::vector<cv::Point2d> source(obs.pixels.begin(),obs.pixels.end()),target;
+    for(auto p:obs.objectPoints)target.emplace_back(p.x/cfg_.squareMm,p.y/cfg_.squareMm);
     cv::Mat mask;
-    H_ = cv::findHomography(
-        detectedPts, targetPts,
-        cv::RANSAC,
-        1.5,    // 重投影误差阈值 (px)
-        mask,
-        2000,   // 最大迭代次数
-        0.9999  // 置信度
-    );
-
-    if (H_.empty())
-    {
-        qDebug() << "[CameraCorrector] 单应矩阵估计失败\n";
-        return false;
+    const cv::Mat cellsH=cv::findHomography(source,target,cv::RANSAC,cfg_.fitToleranceCells,mask,2000,0.9999);
+    if(cellsH.empty()||!cv::checkRange(cellsH)){error_="无法计算有效的透视矩阵";return false;}
+    std::vector<cv::Point2d> projected;cv::perspectiveTransform(source,projected,cellsH);
+    std::vector<double> allErrors,inlierErrors;
+    for(size_t i=0;i<projected.size();++i){
+        const double denominator=cellsH.at<double>(2,0)*source[i].x+cellsH.at<double>(2,1)*source[i].y+cellsH.at<double>(2,2);
+        double error=cv::norm(projected[i]-target[i]);
+        if(!std::isfinite(error)||!std::isfinite(denominator)||std::abs(denominator)<1e-12){error_="透视点转换无效";return false;}
+        allErrors.push_back(error);if(error<=cfg_.fitToleranceCells)inlierErrors.push_back(error);
     }
-
-    const int inliers = cv::countNonZero(mask);
-    const int total   = (int)detectedPts.size();
-    const double inlierRatio = (double)inliers / total;
-
-    qDebug() << "[CameraCorrector] RANSAC 内点: "
-             << inliers << "/" << total
-              << " (" << (int)(inlierRatio * 100) << "%)\n";
-
-    if (inlierRatio < 0.80)
-    {
-        qDebug() << "[CameraCorrector] 内点比例过低，"
-                 << "请检查图像质量或标定板平整度。\n";
-        H_.release();
-        return false;
+    report_.inputStage=cfg_.inputStage==CameraWarptivePort::InputStage::Raw?"raw":"undistorted";
+    report_.pointCount=int(source.size());report_.inlierCount=int(inlierErrors.size());
+    report_.toleranceCells=cfg_.fitToleranceCells;report_.squareMm=cfg_.squareMm;report_.pixPerMm=cfg_.pixPerMm;
+    report_.all=statistics(allErrors);report_.inliers=statistics(inlierErrors);
+    if(inlierErrors.size()<4 || double(inlierErrors.size())/source.size()<0.8){
+        error_="透视拟合质量不足：最终内点 "+std::to_string(inlierErrors.size())+"/"+std::to_string(source.size())
+            +"，要求至少 80%，容差 "+std::to_string(cfg_.fitToleranceCells)+" 格";return false;
     }
-
-    // 计算所有点（含离群点）的重投影误差，用于诊断
-    std::vector<cv::Point2f> projPts;
-    cv::perspectiveTransform(detectedPts, projPts, H_);
-
-    double sumErr = 0.0, maxErr = 0.0;
-    for (int i = 0; i < total; ++i)
-    {
-        double dx = projPts[i].x - targetPts[i].x;
-        double dy = projPts[i].y - targetPts[i].y;
-        double e  = std::sqrt(dx*dx + dy*dy);
-        sumErr += e;
-        maxErr = std::max(maxErr, e);
+    const cv::Mat output=(cv::Mat_<double>(3,3)<<cfg_.squareMm*cfg_.pixPerMm,0,cfg_.marginXmm()*cfg_.pixPerMm,
+        0,cfg_.squareMm*cfg_.pixPerMm,cfg_.marginYmm()*cfg_.pixPerMm,0,0,1);
+    H_=output*cellsH;
+    boardH_=(cv::Mat_<double>(3,3)<<cfg_.squareMm,0,0,0,cfg_.squareMm,0,0,0,1)*cellsH;
+    cv::Mat inverse;
+    if(!cv::checkRange(H_) || cv::invert(H_/cv::norm(H_,cv::NORM_INF),inverse,cv::DECOMP_SVD)<=1e-12){
+        H_.release();error_="透视矩阵不可逆";return false;
     }
-    const double meanErr    = sumErr / total;
-    const double meanErrMm  = meanErr  / cfg_.pixPerMm;
-    const double maxErrMm   = maxErr   / cfg_.pixPerMm;
-    qDebug() << "[CameraCorrector] 重投影误差：";
-    qDebug() << "  均值：" << QString::number(meanErr, 'f', 3) << "px"
-         << QString::number(meanErrMm, 'f', 3) << "mm";
-    qDebug() << "  最大：" << QString::number(maxErr, 'f', 3) << "px"
-         << QString::number(maxErrMm, 'f', 3) << "mm";
-
-    if (meanErr > 2.0)
-        qDebug() << "[CameraCorrector]   均值误差 > 2px，"
-                  << "建议检查标定板是否严格平面。\n";
-
-    hasMap_ = true;
-
-    cv::Size outSz = cfg_.outSize();
-    qDebug() << "[CameraCorrector] 输出尺寸: "
-              << outSz.width << "×" << outSz.height << " px, "
-              << cfg_.pixPerMm << " px/mm\n";
-    qDebug() << "[CameraCorrector] 标定板偏移: ("
-              << cfg_.marginXmm() << ", "
-              << cfg_.marginYmm() << ") mm\n";
-
+    hasMap_=true;
+    qInfo()<<"[Perspective] fit ms:"<<timer.nsecsElapsed()/1e6<<report_.description();
     return true;
 }
-
 bool CameraCorrector::warp(const cv::Mat& undistImg, cv::Mat& dst) const
 {
     if (!hasMap_)
@@ -266,25 +132,28 @@ bool CameraCorrector::warp(const cv::Mat& undistImg, cv::Mat& dst) const
 
 bool CameraCorrector::save(const std::string& path) const
 {
-    cv::FileStorage fs(path, cv::FileStorage::WRITE);
-    if (!fs.isOpened())
-    {
-        qDebug() << "[CameraCorrector] 无法打开: " << QString::fromStdString(path) << "\n";
-        return false;
-    }
+    if(!hasMap_) return false;
+    try {
+    const bool xml=QString::fromUtf8(path.c_str()).endsWith(".xml",Qt::CaseInsensitive);
+    cv::FileStorage fs("", cv::FileStorage::WRITE|cv::FileStorage::MEMORY
+        |(xml?cv::FileStorage::FORMAT_XML:cv::FileStorage::FORMAT_YAML));
     fs << "gridCols"     << cfg_.gridCols;
     fs << "gridRows"     << cfg_.gridRows;
     fs << "squareMm"     << cfg_.squareMm;
     fs << "outWidthMm"   << cfg_.outWidthMm;
     fs << "outHeightMm"  << cfg_.outHeightMm;
     fs << "pixPerMm"     << cfg_.pixPerMm;
+    fs << "boardType" << static_cast<int>(cfg_.boardType) << "markerMm" << cfg_.markerMm << "dictionaryId" << cfg_.dictionaryId;
+    fs << "homography_input" << "undistorted_pixels" << "calibration_input_stage" << static_cast<int>(cfg_.inputStage)
+       << "fitToleranceCells" << cfg_.fitToleranceCells;
+    report_.write(fs);
     fs << "physicalOffsetXmm" << physicalOffsetMm_.x;
     fs << "physicalOffsetYmm" << physicalOffsetMm_.y;
     if (!H_.empty())
         fs << "homography" << H_;
-    fs.release();
-    qDebug() << "[CameraCorrector] 参数已保存: " << QString::fromStdString(path) << "\n";
-    return true;
+    const auto contents=fs.releaseAndGetString();QSaveFile file(QString::fromUtf8(path.c_str()));
+    return file.open(QIODevice::WriteOnly) && file.write(contents.data(),qint64(contents.size()))==qint64(contents.size()) && file.commit();
+    } catch(const cv::Exception&){return false;}
 }
 
 bool CameraCorrector::load(const std::string& path)
@@ -297,6 +166,10 @@ bool CameraCorrector::load(const std::string& path)
     fs["outWidthMm"]  >> cfg_.outWidthMm;
     fs["outHeightMm"] >> cfg_.outHeightMm;
     fs["pixPerMm"]    >> cfg_.pixPerMm;
+    cfg_.boardType = CameraWarptivePort::BoardType::Chessboard; cfg_.markerMm=0; cfg_.dictionaryId=0;
+    if(!fs["boardType"].empty()){int type=0;fs["boardType"]>>type;cfg_.boardType=static_cast<CameraWarptivePort::BoardType>(type);}
+    if(!fs["markerMm"].empty())fs["markerMm"]>>cfg_.markerMm;
+    if(!fs["dictionaryId"].empty())fs["dictionaryId"]>>cfg_.dictionaryId;
     if (!fs["physicalOffsetXmm"].empty())
         fs["physicalOffsetXmm"] >> physicalOffsetMm_.x;
     else

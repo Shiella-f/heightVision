@@ -1,184 +1,109 @@
 ﻿#include "Calib.h"
-#include <iostream>
-#include <algorithm>
+#include "../../BoardDetection.h"
+#include "../../BoardConfiguration.h"
+#include <QFile>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
+#include <QSet>
+#include <QDebug>
+#include <cmath>
+#include <limits>
 
-Calib::Calib() {
-}
-
-Calib::~Calib() {
-}
-
-double Calib::runCalibration(const std::vector<std::string>& imageFiles,const cv::Size boardSize,const float squareSize,
-                             cv::Mat& cameraMatrix, cv::Mat& distCoeffs,
-                             std::vector<cv::Mat>& rvecs, std::vector<cv::Mat>& tvecs,
-                             std::vector<std::vector<cv::Point2f>>& imagePoints,
-                             std::vector<std::vector<cv::Point3f>>& objectPoints)
+namespace {
+double run(const std::vector<std::string>& paths, const calibration::BoardSpec& spec,
+           cv::Mat& K, cv::Mat& D, std::vector<cv::Mat>& rvecs, std::vector<cv::Mat>& tvecs,
+           std::vector<std::vector<cv::Point2f>>& imagePoints,
+           std::vector<std::vector<cv::Point3f>>& objectPoints, cv::Size& outputSize,const Calib::LogCallback& log)
 {
-    // 清空输出容器
-    imagePoints.clear();
-    objectPoints.clear();
-    
-    const bool debugVis = true;// 是否启用调试可视化
-    std::vector<cv::Point3f> obj;
-    for (int i = 0; i < boardSize.height; i++) {
-        for (int j = 0; j < boardSize.width; j++) {
-            obj.push_back(cv::Point3f(j * squareSize, i * squareSize, 0));
+    outputSize={}; imagePoints.clear(); objectPoints.clear();
+    if(!spec.valid())return -1;
+    cv::Size size;
+    QSet<QByteArray> seen;
+    try {
+        for(const auto& path:paths) {
+            QElapsedTimer reading;reading.start();
+            QFile file(QString::fromUtf8(path.c_str()));
+            if(!file.open(QIODevice::ReadOnly)){qWarning()<<"[Camera] unreadable:"<<file.fileName();if(log)log("无法读取："+file.fileName());continue;}
+            auto bytes=file.readAll();
+            auto hash=QCryptographicHash::hash(bytes,QCryptographicHash::Sha256);
+            if(seen.contains(hash)){qInfo()<<"[Camera] duplicate skipped:"<<file.fileName();if(log)log("跳过内容重复的图片："+file.fileName());continue;}
+            seen.insert(hash);
+            if(bytes.isEmpty())continue;
+            cv::Mat encoded(1,int(bytes.size()),CV_8UC1,bytes.data());
+            auto image=cv::imdecode(encoded,cv::IMREAD_COLOR);
+            if(image.empty())continue;
+            qInfo()<<"[Camera] read/decode ms:"<<reading.nsecsElapsed()/1e6<<file.fileName();
+            if(log)log(QString("读取 %1：%2 ms").arg(file.fileName()).arg(reading.nsecsElapsed()/1e6,0,'f',1));
+            if(size.area()!=0 && image.size()!=size){imagePoints.clear();objectPoints.clear();return -1;}
+            size=image.size();
+            calibration::BoardObservation observation;
+            bool found=calibration::detectBoard(image,spec,observation);
+            for(const auto& a:observation.attempts)
+                qInfo()<<"[Board]"<<a.method.c_str()<<a.workSize.width<<a.workSize.height<<"found:"<<a.found<<"ms:"<<a.milliseconds;
+            qInfo()<<"[Camera] detection:"<<observation.method.c_str()<<"points:"<<observation.pixels.size()
+                   <<"total ms:"<<observation.milliseconds<<"refine ms:"<<observation.refinementMs
+                   <<"error:"<<observation.error.c_str();
+            if(log)log(QString("检测 %1：%2，%3 点，%4 次搜索，%5 ms（精化 %6 ms）%7")
+                .arg(file.fileName(),QString::fromStdString(observation.method)).arg(observation.pixels.size())
+                .arg(observation.attempts.size()).arg(observation.milliseconds,0,'f',1).arg(observation.refinementMs,0,'f',1)
+                .arg(found?QString():"；"+QString::fromStdString(observation.error)));
+            if(!found || observation.pixels.size()<5)continue;
+            // Preserve the historical camera extrinsic origin at the first inner corner.
+            if(spec.type==calibration::BoardType::Chessboard)
+                for(auto& p:observation.objectPoints){p.x-=float(spec.squareMm);p.y-=float(spec.squareMm);}
+            imagePoints.push_back(std::move(observation.pixels));
+            objectPoints.push_back(std::move(observation.objectPoints));
         }
-    }
-    cv::Size imageSize;
-    for (const auto& file : imageFiles) {
-        cv::Mat img = cv::imread(file);
-        if (img.empty()) continue;
-        if (imageSize.area() == 0) {
-            imageSize = img.size();
+        if(imagePoints.empty())return -1;
+        QElapsedTimer solving;solving.start();
+        double rms=std::numeric_limits<double>::infinity();
+        for(double multiplier:{.75,1.5,3.0}){
+            double focal=std::max(size.width,size.height)*multiplier;
+            cv::Mat candidateK=(cv::Mat_<double>(3,3)<<focal,0,(size.width-1)*.5,0,focal,(size.height-1)*.5,0,0,1),candidateD;
+            std::vector<cv::Mat> candidateR,candidateT;
+            double value=cv::calibrateCamera(objectPoints,imagePoints,size,candidateK,candidateD,candidateR,candidateT,
+                cv::CALIB_USE_INTRINSIC_GUESS,cv::TermCriteria(cv::TermCriteria::COUNT|cv::TermCriteria::EPS,200,1e-10));
+            if(std::isfinite(value)&&value<rms&&cv::checkRange(candidateK)&&cv::checkRange(candidateD)
+                &&candidateK.at<double>(0,0)>0&&candidateK.at<double>(1,1)>0){
+                rms=value;K=candidateK;D=candidateD;rvecs=std::move(candidateR);tvecs=std::move(candidateT);
+            }
         }
-            cv::Mat gray;
-            cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
-            // 存储当前图像检测到的角点
-            std::vector<cv::Point2f> corners;
-            // 优化的检测策略：先用带 FAST_CHECK 的快速检测，失败后逐步尝试更稳健的检测方法
-            int flags_fast = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_FAST_CHECK;
-            int flags_norm = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
-
-            bool found = false;
-            // 1) 第一轮：快速检测
-            found = cv::findChessboardCorners(gray, boardSize, corners, flags_fast);
-            // 如果第一轮失败，尝试去掉 FAST_CHECK 标志（更稳健但慢一些）
-            if (!found) {
-                std::cout << "[Calib] findChessboardCorners (without FAST_CHECK) for " << file << "\n";
-                found = cv::findChessboardCorners(gray, boardSize, corners, flags_norm);
-            }
-            //如果仍然失败，尝试使用更稳健的 findChessboardCornersSB
-            if (!found) {
-                try {
-                    found = cv::findChessboardCornersSB(gray, boardSize, corners, cv::CALIB_CB_NORMALIZE_IMAGE);
-                    if (found) std::cout << "[Calib] findChessboardCornersSB succeeded for " << file << "\n";
-                } catch (...) {
-                }
-            }
-            // 如果未检测到，打印日志
-            if (!found) {
-                std::cout << "[Calib] Chessboard not found in " << file << " (size=" << gray.cols << "x" << gray.rows << ")\n";
-                if (debugVis) {
-                    cv::imshow("NotFound", gray);
-                    cv::waitKey(0);
-                }
-            }
-
-            if (found) {
-            // 亚像素精确化，提高角点坐标精度
-            // winSize: 搜索窗口大小 (11, 11)
-            // zeroZone: 死区大小 (-1, -1) 表示没有死区
-            // criteria: 终止条件 (最大迭代次数 30 或 误差小于 0.1)
-            cv::cornerSubPix(gray, corners, cv::Size(11, 11), cv::Size(-1, -1),
-                cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.1));
-                if (debugVis) {
-                    cv::Mat imgCorners = img.clone();
-                    cv::drawChessboardCorners(imgCorners, boardSize, corners, found);
-                    cv::namedWindow("Corners", cv::WINDOW_NORMAL);
-                    cv::imshow("Corners", imgCorners);
-                    cv::waitKey(0);
-                }
-            // 将检测到的 2D 角点加入列表
-            imagePoints.push_back(corners);
-            // 将对应的 3D 物体点加入列表 (每张图对应的 3D 点都是一样的)
-            objectPoints.push_back(obj);
+        qInfo()<<"[Camera] solve ms:"<<solving.nsecsElapsed()/1e6<<"unique views:"<<imagePoints.size()<<"RMS:"<<rms;
+        if(log)log(QString("内参求解：%1 张有效独立图片，%2 ms，RMS=%3").arg(imagePoints.size()).arg(solving.nsecsElapsed()/1e6,0,'f',1).arg(rms));
+        if(!std::isfinite(rms)||rms<0||rms>2||!cv::checkRange(K)||!cv::checkRange(D)){
+            if(log)log("相机内参求解未通过质量检查：无有限有效解或 RMS 超过 2 px。");return -1;
         }
-    }
-
-    // 如果有效图片数量太少(没有图片检测到角点)，无法标定
-    if (imagePoints.empty()) {
-        return -1.0;
-    }
-
-    // 开始相机标定
-    // objectPoints: 世界坐标系中的点向量的向量
-    // imagePoints: 图像坐标系中的点向量的向量
-    // imageSize: 图像大小
-    // cameraMatrix: 输出内参矩阵 (3x3)
-    // distCoeffs: 输出畸变系数 (k1, k2, p1, p2, k3...)
-    // rvecs, tvecs: 每张图片的旋转和平移向量
-    double rms = cv::calibrateCamera(objectPoints, imagePoints, imageSize,
-        cameraMatrix, distCoeffs, rvecs, tvecs);
-
-    // 返回重投影误差
-    return rms;
+        if(log)log("相机数值解已求得；仅平面运动的数据不能证明完整内参可靠。固定高度测量请使用固定平面模式，并进行独立实物验收。");
+        outputSize=size;
+        return rms;
+    }catch(const cv::Exception& error){qWarning()<<"[Camera]"<<error.what();imagePoints.clear();objectPoints.clear();return -1;}
 }
-
-double Calib::runCalibrationChArUco(const std::vector<std::string>& imageFiles, 
-                      const cv::Size boardSize, 
-                      const float squareSize, 
-                      const float markerSize,
-                      const int dictionaryId,
-                      cv::Mat& cameraMatrix, cv::Mat& distCoeffs,
-                      std::vector<cv::Mat>& rvecs, std::vector<cv::Mat>& tvecs,
-                      std::vector<std::vector<cv::Point2f>>& imagePoints,
-                      std::vector<std::vector<cv::Point3f>>& objectPoints)
+}
+Calib::Calib()=default;
+Calib::~Calib()=default;
+double Calib::runConfigured(const std::vector<std::string>& paths,const QJsonObject& config,cv::Mat& K,cv::Mat& D,
+    std::vector<cv::Mat>& rvecs,std::vector<cv::Mat>& tvecs,std::vector<std::vector<cv::Point2f>>& images,
+    std::vector<std::vector<cv::Point3f>>& objects){
+    calibration::BoardSpec spec;QString error;
+    if(!calibration::parseBoardConfiguration(config,spec,error)){m_imageSize={};images.clear();objects.clear();if(m_log)m_log(error);return -1;}
+    return run(paths,spec,K,D,rvecs,tvecs,images,objects,m_imageSize,m_log);
+}
+double Calib::runCalibration(const std::vector<std::string>& paths,const cv::Size boardSize,const float squareSize,
+    cv::Mat& K,cv::Mat& D,std::vector<cv::Mat>& rvecs,std::vector<cv::Mat>& tvecs,
+    std::vector<std::vector<cv::Point2f>>& images,std::vector<std::vector<cv::Point3f>>& objects)
 {
-    // 存储所有图片的 Charuco 角点和 Object Points
-    imagePoints.clear();
-    objectPoints.clear();
-    
-    // 初始化 Dictionary 和 Board
-    cv::aruco::Dictionary dictionary = cv::aruco::getPredefinedDictionary(dictionaryId);
-    cv::aruco::CharucoBoard board(boardSize, squareSize, markerSize, dictionary);
-    cv::aruco::CharucoDetector detector(board);
-    
-    // 获取所有的理论 3D 角点
-    std::vector<cv::Point3f> allBoardCorners = board.getChessboardCorners();
-
-    cv::Size imageSize;
-    const bool debugVis = true; // 可视化开关
-
-    for (const auto& file : imageFiles) {
-        cv::Mat img = cv::imread(file);
-        if (img.empty()) continue;
-        if (imageSize.area() == 0) imageSize = img.size();
-
-        std::vector<int> charucoIds;
-        std::vector<cv::Point2f> charucoCorners;
-        
-        // 检测 Charuco 板
-        // CharucoDetector::detectBoard 内部会检测 markers 并插值 charuco corners
-        detector.detectBoard(img, charucoCorners, charucoIds);
-
-        if (charucoIds.size() > 4) { // 至少需要一定数量的角点才能进行标定
-            imagePoints.push_back(charucoCorners);
-            
-            // 收集对应的 3D 点
-            std::vector<cv::Point3f> currentObjectPoints;
-            currentObjectPoints.reserve(charucoIds.size());
-            for(int id : charucoIds) {
-                if(id >= 0 && id < (int)allBoardCorners.size())
-                {
-                    currentObjectPoints.push_back(allBoardCorners[id]);
-                }
-            }
-            objectPoints.push_back(currentObjectPoints);
-                
-            if (debugVis) {
-                cv::Mat imgCopy;
-                img.copyTo(imgCopy);
-                cv::aruco::drawDetectedCornersCharuco(imgCopy, charucoCorners, charucoIds);
-                cv::imshow("Charuco", imgCopy);
-                cv::waitKey(10); 
-            }
-        } else {
-             std::cout << "[Calib] Not enough Charuco corners in " << file << "\n";
-        }
-    }
-    
-    if (debugVis) try { cv::destroyWindow("Charuco"); } catch(...){}
-
-    // 如果有效数据太少，返回失败
-    if (imagePoints.size() < 1) {
-        return -1.0;
-    }
-
-    // 执行相机标定 (使用标准 calibrateCamera)
-    double rms = cv::calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs);
-    
-    std::cout << "[Calib] ChArUco Calibration done. RMS: " << rms << "\n";
-    return rms;
+    calibration::BoardSpec spec;
+    if(boardSize.width<3||boardSize.height<3||boardSize.width>10000||boardSize.height>10000){m_imageSize={};images.clear();objects.clear();return -1;}
+    spec.squares={boardSize.width+1,boardSize.height+1};spec.squareMm=squareSize;
+    return run(paths,spec,K,D,rvecs,tvecs,images,objects,m_imageSize,m_log);
 }
-
+double Calib::runCalibrationChArUco(const std::vector<std::string>& paths,const cv::Size squares,
+    const float squareSize,const float markerSize,const int dictionaryId,cv::Mat& K,cv::Mat& D,
+    std::vector<cv::Mat>& rvecs,std::vector<cv::Mat>& tvecs,
+    std::vector<std::vector<cv::Point2f>>& images,std::vector<std::vector<cv::Point3f>>& objects)
+{
+    calibration::BoardSpec spec;
+    spec.type=calibration::BoardType::Charuco;spec.squares=squares;spec.squareMm=squareSize;
+    spec.markerMm=markerSize;spec.dictionaryId=dictionaryId<0?cv::aruco::DICT_4X4_50:dictionaryId;
+    return run(paths,spec,K,D,rvecs,tvecs,images,objects,m_imageSize,m_log);
+}

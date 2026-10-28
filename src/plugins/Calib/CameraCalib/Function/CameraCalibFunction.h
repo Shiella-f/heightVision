@@ -20,12 +20,16 @@ public:
     ICameraCalibScene* getScene() const override;//返回场景指针
     CalibData getCalibData() const override; // 获取标定结果数据
     bool isCalibrated() const override; // 是否已完成标定
+    bool CalibrateBoard(const QVector<QString>& imagePaths,const QJsonObject& board) override;
+signals:
+    void calibrationLog(const QString& message);
 
 
 private:
 
     bool isSaved = false;
     Calib m_calib;
+    QJsonObject m_pendingBoard;
     CameraCalibScene* m_scene;
 
     
