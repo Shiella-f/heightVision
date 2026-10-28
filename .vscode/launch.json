@@ -15,7 +15,7 @@
         }
       ],
       "stopAtEntry": false,
-      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\ea5929ba556dfe0ccbc4abbaff68c295\\tonka3000.qtvsctools\\qt.natvis.xml"
+      "visualizerFile": "c:\\Users\\zhanghongfei\\AppData\\Roaming\\Code\\User\\workspaceStorage\\8d4fc30a55b34eacb8acc81630f0c505\\tonka3000.qtvsctools\\qt.natvis.xml"
     },
     {
       "name": "Launch Qt App (Release)",
@@ -32,7 +32,7 @@
       ],
       "stopAtEntry": false,
       "preLaunchTask": "CMake Build (Release)",
-      "visualizerFile": "c:\\Users\\m1760\\AppData\\Roaming\\Code\\User\\workspaceStorage\\ea5929ba556dfe0ccbc4abbaff68c295\\tonka3000.qtvsctools\\qt.natvis.xml"
+      "visualizerFile": "c:\\Users\\zhanghongfei\\AppData\\Roaming\\Code\\User\\workspaceStorage\\8d4fc30a55b34eacb8acc81630f0c505\\tonka3000.qtvsctools\\qt.natvis.xml"
     }
   ]
 }
