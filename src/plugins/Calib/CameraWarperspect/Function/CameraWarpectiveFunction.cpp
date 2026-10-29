@@ -18,6 +18,7 @@ CameraWarpectiveFunction::~CameraWarpectiveFunction()
 
 bool CameraWarpectiveFunction::LoadCameraCalibrationData(const QString& path)
 {
+    m_imported=false;m_measurement.postRoi={};
     m_boardHomography.release();m_regionValid=false;m_report={};m_renderMeasurement={};m_detectionCalls=0;
     m_remapper.reset();
     isCalibrated = false;
@@ -29,6 +30,7 @@ bool CameraWarpectiveFunction::LoadCameraCalibrationData(const QString& path)
 
 bool CameraWarpectiveFunction::CalibWarptive(const Config& requested, const cv::Mat& rawImage)
 {
+    m_imported=false;m_measurement.postRoi={};
     Config config=requested;
     m_boardHomography.release();m_regionValid=false;m_report={};m_supportHull.clear();m_renderMeasurement={};
     m_remapper.reset();
@@ -104,6 +106,7 @@ bool CameraWarpectiveFunction::CalibWarptive(const Config& requested, const cv::
         m_measurement.homography = m_CameraCorrector->homography();
         m_measurement.pixPerMm = m_CameraCorrector->config().pixPerMm;
         m_measurement.offsetMm = m_CameraCorrector->physicalOffsetMm();
+        m_measurement.outputMm={config.outWidthMm,config.outHeightMm};m_measurement.halfPixelOutput=false;
         m_boardHomography=m_CameraCorrector->boardHomography();
         std::vector<cv::Point2f> support;for(auto p:observation.objectPoints)support.emplace_back(p.x,p.y);
         cv::convexHull(support,m_supportHull);
@@ -122,23 +125,28 @@ bool CameraWarpectiveFunction::CalibWarptive(const Config& requested, const cv::
 
 bool CameraWarpectiveFunction::SaveMeasurementCalibration(const QString& path) const
 {
-    return isCalibrated && (!m_config.useOutputRegion||m_regionValid) && m_CameraCorrector && m_measurement.saveProfile(path,&m_CameraCorrector->fitReport());
+    return isCalibrated && (!m_config.useOutputRegion||m_regionValid) && m_measurement.saveProfile(path,m_CameraCorrector?&m_CameraCorrector->fitReport():nullptr);
 }
 
 bool CameraWarpectiveFunction::SaveResult(const QString savePath)
 {
     if(m_config.useOutputRegion)return SaveMeasurementCalibration(savePath);
-    return isCalibrated && m_CameraCorrector && m_CameraCorrector->save(savePath.toStdString());
+    return isCalibrated && m_CameraCorrector && m_CameraCorrector->save(savePath.toStdString(),&m_measurement.postRoi);
 }
 
 bool CameraWarpectiveFunction::UseWarptiveImage(const cv::Mat& rawImage, cv::Mat& dstImage) const
 {
-    if (!isCalibrated || !m_CameraCorrector || (m_config.useOutputRegion&&!m_regionValid)) { dstImage.release(); return false; }
+    cv::Mat base;if(!RenderBaseImage(rawImage,base)){dstImage.release();return false;}
+    return m_measurement.postRoi.apply(base,dstImage);
+}
+bool CameraWarpectiveFunction::RenderBaseImage(const cv::Mat& rawImage, cv::Mat& dstImage) const
+{
+    if (!isCalibrated || (!m_CameraCorrector&&!m_imported) || (m_config.useOutputRegion&&!m_regionValid)) { dstImage.release(); return false; }
     const auto& render=m_config.useOutputRegion?m_renderMeasurement:m_measurement;
     const auto size=m_config.useOutputRegion?m_outputSize:m_CameraCorrector->config().outSize();
     try {
         QElapsedTimer timer; timer.start();
-        if(m_CameraCorrector->config().inputStage==InputStage::Undistorted) {
+        if(m_config.inputStage==InputStage::Undistorted) {
             const cv::Mat source=rawImage;dstImage.release();
             if(source.empty()||source.dims!=2||source.size()!=m_measurement.imageSize||source.depth()!=CV_8U
                 ||(source.channels()!=1&&source.channels()!=3&&source.channels()!=4))return false;
@@ -179,6 +187,7 @@ bool CameraWarpectiveFunction::MapInputToBoard(const QPointF& input,QPointF& res
     }catch(const cv::Exception&){return false;}
 }
 bool CameraWarpectiveFunction::SetOutputRegion(const QPointF& center,double width,double height,double density){
+    m_measurement.postRoi={};
     m_regionValid=false;m_remapper.reset();m_report["region_valid"]=false;m_report.remove("error");
     m_report.remove("roi_boundary_input_pixels");m_measurement.regionMetadata={};
     auto fail=[&](const QString& error){m_report["error"]=error;return false;};
@@ -214,7 +223,7 @@ bool CameraWarpectiveFunction::SetOutputRegion(const QPointF& center,double widt
                 return fail("区域超出输入图片，请调整中心或范围。");
             if(!std::isfinite(cross)||std::abs(cross)<1e-12||(orientation&&orientation*cross<=0))return fail("区域映射存在折叠或退化。");
             orientation=cross;
-            if(cv::pointPolygonTest(m_supportHull,world[i],true)<-1e-6)extrapolated=true;
+            if(m_supportHull.empty()||cv::pointPolygonTest(m_supportHull,world[i],true)<-1e-6)extrapolated=true;
         }
         // Ordered edge points, in the coordinate system of the displayed input image.
         for(int edge=0;edge<4;++edge)for(int t=0;t<=40;++t){
@@ -223,6 +232,7 @@ bool CameraWarpectiveFunction::SetOutputRegion(const QPointF& center,double widt
         }
         const cv::Mat measurement=(cv::Mat_<double>(3,3)<<density,0,-density*ox,0,density,-density*oy,0,0,1);
         m_measurement.homography=measurement*m_boardHomography;m_measurement.pixPerMm=density;m_measurement.offsetMm={0,0};
+        m_measurement.outputMm={width,height};m_measurement.halfPixelOutput=true;
         m_renderMeasurement=m_measurement;
         const double sx=nx/width,sy=ny/height;
         // MatExpr assignment can reuse a shallow-copied Mat's storage. Allocate separately.
@@ -243,8 +253,33 @@ bool CameraWarpectiveFunction::SetOutputRegion(const QPointF& center,double widt
 }
 QJsonObject CameraWarpectiveFunction::GetReport()const{
     auto r=m_report;r["base_model_ready"]=!m_boardHomography.empty();r["region_valid"]=m_regionValid;
+    r["post_perspective_roi"]=m_measurement.postRoi.report();r["imported_perspective"]=m_imported;
     r["image_width"]=m_measurement.imageSize.width;r["image_height"]=m_measurement.imageSize.height;return r;
 }
+bool CameraWarpectiveFunction::LoadPerspectiveCalibration(const QString& path){
+    auto candidate=m_measurement;isCalibrated=false;m_regionValid=false;m_imported=false;m_measurement.postRoi={};m_remapper.reset();
+    delete m_CameraCorrector;m_CameraCorrector=nullptr;m_boardHomography.release();m_report={};
+    if(!candidate.loadPerspective(path)||!candidate.hasCamera()||!candidate.ready()||candidate.outputPixels().empty()){
+        m_measurement={};m_report["error"]="透视参数无效，或传统文件尚未配套加载相机内参。";return false;
+    }
+    m_measurement=std::move(candidate);m_outputSize=m_measurement.outputPixels();m_renderMeasurement=m_measurement;
+    cv::Mat toMm=(cv::Mat_<double>(3,3)<<1/m_measurement.pixPerMm,0,m_measurement.offsetMm.x,0,1/m_measurement.pixPerMm,m_measurement.offsetMm.y,0,0,1);
+    m_boardHomography=toMm*m_measurement.homography;m_supportHull.clear();
+    m_renderMeasurement.homography=m_measurement.renderHomography();m_config={};m_config.useOutputRegion=true;
+    m_config.outWidthMm=m_measurement.outputMm.width;m_config.outHeightMm=m_measurement.outputMm.height;m_config.pixPerMm=m_measurement.pixPerMm;
+    m_config.inputStage=InputStage::Raw;m_imported=true;m_regionValid=true;isCalibrated=true;
+    m_report=m_measurement.regionMetadata;m_report["region_valid"]=true;m_report["roi_width_mm"]=m_config.outWidthMm;m_report["roi_height_mm"]=m_config.outHeightMm;
+    m_report["roi_center_x_mm"]=m_config.outWidthMm/2+m_measurement.offsetMm.x;m_report["roi_center_y_mm"]=m_config.outHeightMm/2+m_measurement.offsetMm.y;
+    m_report["output_width_px"]=m_outputSize.width;m_report["output_height_px"]=m_outputSize.height;m_report["requested_pixels_per_mm"]=m_config.pixPerMm;
+    m_report["physical_validation_status"]="unverified";return true;
+}
+bool CameraWarpectiveFunction::SetPostPerspectiveRoi(const PostPerspectiveRoiConfig& config){
+    QString error;bool ok=isCalibrated&&(!m_config.useOutputRegion||m_regionValid)&&m_measurement.postRoi.configure(config,m_measurement.outputPixels(),m_measurement.outputMm,
+        m_measurement.pixPerMm,m_measurement.pixelToMm(),m_measurement.roiBinding(),error)&&m_measurement.validatePostRoi(error);
+    if(!ok){m_measurement.postRoi={};m_report["error"]=error.isEmpty()?QString("请先生成有效基础透视预览。"):error;return false;}
+    m_report.remove("error");m_report["physical_validation_status"]="unverified";return true;
+}
+void CameraWarpectiveFunction::ClearPostPerspectiveRoi(){m_measurement.postRoi={};m_report.remove("error");m_report["physical_validation_status"]="unverified";}
 void CameraWarpectiveFunction::ChangeShow()
 {
     const cv::Mat& image = isCurrentImageShow ? m_rectifiedImage : m_currentImage;

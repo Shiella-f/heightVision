@@ -6,6 +6,8 @@
 #include <QSaveFile>
 #include <opencv2/calib3d.hpp>
 #include <cmath>
+#include <QCryptographicHash>
+#include <QJsonArray>
 
 namespace {
 bool finiteMatrix(const cv::Mat& matrix)
@@ -73,6 +75,66 @@ bool MeasurementCalibration::hasCamera() const
         && (count == 4 || count == 5 || count == 8 || count == 12 || count == 14);
 }
 
+cv::Size MeasurementCalibration::outputPixels()const{
+    if(outputMm.width<=0||outputMm.height<=0||!std::isfinite(outputMm.width)||!std::isfinite(outputMm.height)||!std::isfinite(pixPerMm)||pixPerMm<=0)return {};
+    double w=std::round(outputMm.width*pixPerMm),h=std::round(outputMm.height*pixPerMm);
+    if(w<1||h<1||w>=32767||h>=32767||w*h*12>512.*1024*1024)return {};
+    return {int(w),int(h)};
+}
+bool MeasurementCalibration::validatePostRoi(QString& error)const{
+    if(!postRoi.enabled)return true;
+    auto fail=[&]{error="ROI区域映射到原图之外或去畸变图无效范围，请调整基础范围/参考框。";return false;};
+    if(!ready()||!hasCamera())return fail();
+    try{
+        std::vector<cv::Point2d> target,base,measured,undistorted,normalized;
+        for(int y=0;y<=20;++y)for(int x=0;x<=20;++x)target.emplace_back(x*15.,y*15.);
+        cv::perspectiveTransform(target,base,postRoi.baseMmToRoiMm.inv());
+        for(auto p:base)measured.emplace_back((p-offsetMm)*pixPerMm);
+        cv::perspectiveTransform(measured,undistorted,homography.inv());
+        for(auto p:undistorted)if(!std::isfinite(p.x)||!std::isfinite(p.y)||p.x<0||p.y<0||p.x>imageSize.width-1||p.y>imageSize.height-1)return fail();
+        cv::perspectiveTransform(undistorted,normalized,newCameraMatrix.inv());
+        std::vector<cv::Point3d> rays;for(auto p:normalized)rays.emplace_back(p.x,p.y,1);
+        std::vector<cv::Point2d> raw;cv::projectPoints(rays,cv::Vec3d(),cv::Vec3d(),cameraMatrix,distCoeffs,raw);
+        for(auto p:raw)if(!std::isfinite(p.x)||!std::isfinite(p.y)||p.x<0||p.y<0||p.x>imageSize.width-1||p.y>imageSize.height-1)return fail();
+        return true;
+    }catch(const cv::Exception&){return fail();}
+}
+cv::Mat MeasurementCalibration::pixelToMm()const{
+    auto size=outputPixels();if(size.empty())return {};
+    if(halfPixelOutput)return calibration::halfPixelToMm(size,outputMm);
+    return (cv::Mat_<double>(3,3)<<1/pixPerMm,0,offsetMm.x,0,1/pixPerMm,offsetMm.y,0,0,1);
+}
+cv::Mat MeasurementCalibration::renderHomography()const{
+    if(outputPixels().empty())return {};
+    if(!halfPixelOutput)return homography.clone();
+    cv::Mat measureToMm=(cv::Mat_<double>(3,3)<<1/pixPerMm,0,offsetMm.x,0,1/pixPerMm,offsetMm.y,0,0,1);
+    return pixelToMm().inv()*measureToMm*homography;
+}
+QString MeasurementCalibration::roiBinding()const{
+    QByteArray bytes;auto add=[&](double d){bytes+=QByteArray::number(d,'g',12);bytes+=';';};
+    add(imageSize.width);add(imageSize.height);add(outputMm.width);add(outputMm.height);add(pixPerMm);add(offsetMm.x);add(offsetMm.y);add(halfPixelOutput?1:0);
+    for(const auto& m:{cameraMatrix,distCoeffs,newCameraMatrix,homography}){
+        add(m.rows);add(m.cols);if(m.empty())continue;cv::Mat n=m/cv::norm(m,cv::NORM_INF);for(size_t i=0;i<n.total();++i)add(n.ptr<double>()[i]);
+    }
+    return QString::fromLatin1(QCryptographicHash::hash(bytes,QCryptographicHash::Sha256).toHex());
+}
+bool MeasurementCalibration::loadPerspective(const QString& path){
+    const MeasurementCalibration camera=*this;*this={};
+    try{
+        auto fs=readStorage(path);if(!fs.isOpened())return false;
+        if(!fs["format_version"].empty())return loadProfile(path);
+        MeasurementCalibration candidate=camera;candidate.postRoi={};candidate.regionMetadata={};candidate.plane.reset();
+        if(!readMatrix(fs,"homography",candidate.homography)||!readNumber(fs,"pixPerMm",candidate.pixPerMm)
+          ||!readNumber(fs,"outWidthMm",candidate.outputMm.width)||!readNumber(fs,"outHeightMm",candidate.outputMm.height))return false;
+        candidate.offsetMm={0,0};if(!fs["physicalOffsetXmm"].empty()&&!readNumber(fs,"physicalOffsetXmm",candidate.offsetMm.x))return false;
+        if(!fs["physicalOffsetYmm"].empty()&&!readNumber(fs,"physicalOffsetYmm",candidate.offsetMm.y))return false;
+        candidate.halfPixelOutput=false;
+        if(candidate.outputPixels().empty()||std::abs(cv::determinant(candidate.homography))<1e-15)return false;
+        QString error;if(!candidate.postRoi.read(fs["post_perspective_roi"],candidate.outputPixels(),candidate.outputMm,candidate.pixPerMm,candidate.pixelToMm(),candidate.roiBinding(),error)||!candidate.validatePostRoi(error))return false;
+        *this=std::move(candidate);return true;
+    }catch(const std::exception&){return false;}
+}
+
 bool MeasurementCalibration::ready() const
 {
     if(plane)return plane->valid()&&plane->regionValid;
@@ -100,12 +162,31 @@ bool MeasurementCalibration::loadCamera(const QString& path)
 
 bool MeasurementCalibration::loadProfile(const QString& path)
 {
+    return loadProfileImpl(path, true);
+}
+
+bool MeasurementCalibration::loadBaseProfile(const QString& path)
+{
+    if (!loadProfileImpl(path, false)) return false;
+    if (plane) return true; // The plane loader validates its physical region and canvas.
+    if (outputPixels().empty() || renderHomography().empty()) {
+        *this = {};
+        return false;
+    }
+    return true;
+}
+
+bool MeasurementCalibration::loadProfileImpl(const QString& path, bool applyPostRoi)
+{
     *this = {};
     try {
         const auto fs = readStorage(path);
         if(fs.isOpened()&&fs["format_version"].isInt()&&int(fs["format_version"])==2){
             auto model=std::make_shared<calibration::PlaneModel>();QString error;
-            if(!calibration::PlaneModel::load(path,*model,true,error))return false;
+            const bool loaded = applyPostRoi
+                ? calibration::PlaneModel::load(path,*model,true,error)
+                : calibration::PlaneModel::loadBaseProfile(path,*model,true,error);
+            if(!loaded)return false;
             imageSize=model->imageSize;plane=std::move(model);return true;
         }
         if (!fs.isOpened() || !fs["format_version"].isInt()
@@ -122,6 +203,20 @@ bool MeasurementCalibration::loadProfile(const QString& path)
             || !candidate.ready()) return false;
         // Normalize H so the projective-denominator check is scale independent.
         candidate.homography /= cv::norm(candidate.homography, cv::NORM_INF);
+        if(!fs["region_metadata_json"].empty()){
+            QByteArray encoded;auto node=fs["region_metadata_json"];
+            if(!node.isSeq()||std::string(fs["region_metadata_encoding"])!="base64_chunks")return false;
+            for(auto item:node){if(!item.isString())return false;encoded+=QByteArray::fromStdString(std::string(item));}
+            QJsonParseError error;auto doc=QJsonDocument::fromJson(QByteArray::fromBase64(encoded),&error);
+            if(error.error!=QJsonParseError::NoError||!doc.isObject())return false;candidate.regionMetadata=doc.object();
+        }
+        candidate.outputMm={candidate.regionMetadata["roi_width_mm"].toDouble(),candidate.regionMetadata["roi_height_mm"].toDouble()};
+        candidate.halfPixelOutput=candidate.regionMetadata["pixel_center_convention"].toString()=="half_pixel";
+        if(candidate.outputMm.width<=0||candidate.outputMm.height<=0){
+            if(!fs["outWidthMm"].empty()&&!fs["outHeightMm"].empty())candidate.outputMm={double(fs["outWidthMm"]),double(fs["outHeightMm"])};
+        }
+        QString roiError;
+        if(applyPostRoi && (!candidate.postRoi.read(fs["post_perspective_roi"],candidate.outputPixels(),candidate.outputMm,candidate.pixPerMm,candidate.pixelToMm(),candidate.roiBinding(),roiError)||!candidate.validatePostRoi(roiError)))return false;
         *this = std::move(candidate);
         return true;
     } catch (const cv::Exception&) { return false; }
@@ -145,6 +240,8 @@ bool MeasurementCalibration::saveProfile(const QString& path, const calibration:
            << "new_camera_matrix" << newCameraMatrix << "homography" << homography
            << "pixPerMm" << pixPerMm << "physicalOffsetXmm" << offsetMm.x
            << "physicalOffsetYmm" << offsetMm.y;
+        if(outputMm.width>0&&outputMm.height>0)fs<<"outWidthMm"<<outputMm.width<<"outHeightMm"<<outputMm.height;
+        postRoi.write(fs);
         if (report) report->write(fs);
         if(!regionMetadata.isEmpty()){
             const auto bytes=QJsonDocument(regionMetadata).toJson(QJsonDocument::Compact).toBase64();
@@ -191,6 +288,7 @@ bool MeasurementCalibration::mapPoints(const std::vector<cv::Point2f>& raw,
     for (auto& point : rectified) {
         point = point * (1.0 / pixPerMm) + offsetMm;
         if (!std::isfinite(point.x) || !std::isfinite(point.y)) return false;
+        if(!postRoi.map(point))return false;
     }
     millimeters = std::move(rectified);
     return true;

@@ -6,6 +6,8 @@
 #include <QObject>
 #include "../template_global.h"
 #include "ImageprocessPort.h"
+#include "../../Calib/MeasurementCalibration.h"
+#include "../../Calib/PlaneModel.h"
 
 class ImageProcess : public QObject, public ImageProcessPort{
     Q_OBJECT
@@ -30,11 +32,19 @@ public:
     bool setCoordinateOriginByPair(cv::Point2d pixelPt,cv::Point2d physicalPtMm) override;
     
     //像素坐标->物理坐标（mm）
-    cv::Point2d pixelToMm(cv::Point2d px) override {return { px.x / m_config.pixPerMm + physicalOffsetMm_.x, px.y / m_config.pixPerMm + physicalOffsetMm_.y };}
+    cv::Point2d pixelToMm(cv::Point2d px) override {
+        const auto& roi=m_tiltCalibration.plane?m_tiltCalibration.plane->postRoi:m_tiltCalibration.postRoi;
+        if(roi.enabled)return {(px.x+.5)*300/roi.outputSize.width,(px.y+.5)*300/roi.outputSize.height};
+        return { px.x / m_config.pixPerMm + physicalOffsetMm_.x, px.y / m_config.pixPerMm + physicalOffsetMm_.y };}
     //物理坐标->像素坐标
-    cv::Point2d mmToPixel(cv::Point2d mm) override {return { (mm.x - physicalOffsetMm_.x) * m_config.pixPerMm, (mm.y - physicalOffsetMm_.y) * m_config.pixPerMm };}
+    cv::Point2d mmToPixel(cv::Point2d mm) override {
+        const auto& roi=m_tiltCalibration.plane?m_tiltCalibration.plane->postRoi:m_tiltCalibration.postRoi;
+        if(roi.enabled)return {mm.x*roi.outputSize.width/300-.5,mm.y*roi.outputSize.height/300-.5};
+        return { (mm.x - physicalOffsetMm_.x) * m_config.pixPerMm, (mm.y - physicalOffsetMm_.y) * m_config.pixPerMm };}
     void loadCalibrationData(); // 加载标定数据
 private:
+    MeasurementCalibration m_tiltCalibration;
+    cv::Mat m_planeMapX,m_planeMapY;
     
     void resetPhysicalOffset();
     cv::Mat m_cameraMatrix;

@@ -25,6 +25,10 @@ public:
     bool MapInputToBoard(const QPointF& input,QPointF& boardMm) const override;
     bool SetOutputRegion(const QPointF& centerMm,double widthMm,double heightMm,double pixelsPerMm) override;
     QJsonObject GetReport() const override;
+    bool LoadPerspectiveCalibration(const QString& path) override;
+    bool SetPostPerspectiveRoi(const PostPerspectiveRoiConfig& config) override;
+    void ClearPostPerspectiveRoi() override;
+    bool RenderBaseImage(const cv::Mat& input,cv::Mat& output) const override;
 
     void ChangeShow();
 signals:
@@ -45,6 +49,7 @@ private:
     QJsonObject m_report;
     std::vector<cv::Point2f> m_supportHull;
     bool m_regionValid=false;
+    bool m_imported=false;
     int m_detectionCalls=0;
 
     WarpectiveScene* m_scene;

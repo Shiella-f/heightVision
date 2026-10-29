@@ -375,6 +375,10 @@ public:
         for(auto p:m_model.regionBoundary())result.append({p.x,p.y});return result;
     }
     bool RectifyImage(const cv::Mat& raw,cv::Mat& output)const override {
+        cv::Mat base;if(!RenderBaseImage(raw,base)){output.release();return false;}
+        return m_model.postRoi.apply(base,output);
+    }
+    bool RenderBaseImage(const cv::Mat& raw,cv::Mat& output)const override {
         const cv::Mat input=raw;output.release();
         if(!m_model.regionValid||input.empty()||input.dims!=2||input.size()!=m_model.imageSize
            ||input.depth()!=CV_8U||(input.channels()!=1&&input.channels()!=3&&input.channels()!=4))return false;
@@ -400,6 +404,8 @@ public:
             }
             if(!physical.isEmpty()){
                 if(!m_model.regionValid)return fail("独立实物验收前须设置有效测量区域。");
+                const double validationWidth=m_model.postRoi.enabled?300:m_model.regionSize.width;
+                const double validationHeight=m_model.postRoi.enabled?300:m_model.regionSize.height;
                 if(!physical.value("independent").toBool()||physical.value("source").toString().trimmed().isEmpty())
                     return fail("验收数据须声明 independent=true 并记录独立尺寸/坐标来源 source。");
                 const auto points=physical.value("points").toArray(),distances=physical.value("distances").toArray();
@@ -417,9 +423,9 @@ public:
                     std::vector<cv::Point2d> raw{{p["pixel_x"].toDouble(),p["pixel_y"].toDouble()}};std::vector<cv::Point2d> mm;
                     if(!m_model.mapPoints(raw,mm))return fail("实物验收点超出有效区域。");
                     cv::Point2d expected(p["expected_x_mm"].toDouble(),p["expected_y_mm"].toDouble());
-                    if(expected.x<0||expected.y<0||expected.x>m_model.regionSize.width||expected.y>m_model.regionSize.height)return fail("实物参考坐标超出当前 ROI。");
+                    if(expected.x<0||expected.y<0||expected.x>validationWidth||expected.y>validationHeight)return fail("实物参考坐标超出当前 ROI。");
                     double e=cv::norm(mm[0]-expected);maximum=std::max(maximum,e);ss+=e*e;++count;
-                    int x=anchorZone(expected.x/m_model.regionSize.width),y=anchorZone(expected.y/m_model.regionSize.height);
+                    int x=anchorZone(expected.x/validationWidth),y=anchorZone(expected.y/validationHeight);
                     if(x>=0&&y>=0)++cells[y*3+x];
                     if(!p.value("target_id").toString().isEmpty()&&!p.value("frame_id").toString().isEmpty()){
                         auto id=p["target_id"].toString(),frame=p["frame_id"].toString();
@@ -438,10 +444,10 @@ public:
                     std::vector<cv::Point2d> mm;if(!m_model.mapPoints(raw,mm))return fail("长度参考端点超出测量区域。");
                     double e=std::abs(cv::norm(mm[0]-mm[1])-p["expected_mm"].toDouble());maximum=std::max(maximum,e);ss+=e*e;++count;
                     auto delta=mm[1]-mm[0];double length=cv::norm(delta);
-                    if(std::abs(delta.y)<.05*length&&length+1e-7>=.8*m_model.regionSize.width)horizontal=true;
-                    else if(std::abs(delta.x)<.05*length&&length+1e-7>=.8*m_model.regionSize.height)vertical=true;
+                    if(std::abs(delta.y)<.05*length&&length+1e-7>=.8*validationWidth)horizontal=true;
+                    else if(std::abs(delta.x)<.05*length&&length+1e-7>=.8*validationHeight)vertical=true;
                     else if(std::abs(delta.x)>.05*length&&std::abs(delta.y)>.05*length
-                        &&length+1e-7>=.8*std::hypot(m_model.regionSize.width,m_model.regionSize.height))diagonal=true;
+                        &&length+1e-7>=.8*std::hypot(validationWidth,validationHeight))diagonal=true;
                     details.append(QJsonObject{{"length_error_mm",e}});
                 }
                 int empty=0;for(int n:cells)empty+=!n;
@@ -469,6 +475,7 @@ public:
     QJsonObject GetReport()const override {
         auto result=m_model.report.isEmpty()?m_report:m_model.report;
         result["error"]=m_error;result["model_ready"]=m_model.valid();result["region_valid"]=m_model.regionValid;
+        result["post_perspective_roi"]=m_model.postRoi.report();
         result["board_configuration"]=m_model.board;
         result["reference_image"]=m_model.referenceImage;result["image_width"]=m_model.imageSize.width;result["image_height"]=m_model.imageSize.height;
         result["roi_center_x_mm"]=m_model.regionCenter.x;result["roi_center_y_mm"]=m_model.regionCenter.y;
@@ -478,6 +485,13 @@ public:
         return result;
     }
     bool SaveMeasurementCalibration(const QString& path)const override{return m_model.save(path,true);}
+    bool SetPostPerspectiveRoi(const PostPerspectiveRoiConfig& config)override{
+        m_error.clear();bool ok=m_model.regionValid&&m_model.postRoi.configure(config,m_model.outputSize,m_model.regionSize,m_model.requestedPixelsPerMm,
+            calibration::halfPixelToMm(m_model.outputSize,m_model.regionSize),m_model.roiBinding(),m_error);
+        if(!ok){m_model.postRoi={};if(m_error.isEmpty())m_error="请先设置有效基础范围。";return false;}
+        m_model.report["physical_validation_status"]="unverified";m_model.report.remove("physical_validation");return true;
+    }
+    void ClearPostPerspectiveRoi()override{m_model.postRoi={};m_error.clear();m_model.report["physical_validation_status"]="unverified";m_model.report.remove("physical_validation");}
 };
 }
 PlaneCalibrationPort* newPlaneCalibrationPort(){return new PlaneCalibration();}

@@ -6,6 +6,7 @@
 #include "../Function/CameraWarptivePort.h"
 #include "../../BoardDetection.h"
 #include "../../PerspectiveFitReport.h"
+#include "../../PostPerspectiveRoi.h"
 
 class CameraCorrector {
 public:
@@ -39,7 +40,7 @@ public:
 
     
 
-    bool save(const std::string& path) const;
+    bool save(const std::string& path,const calibration::PostPerspectiveRoi* roi=nullptr) const;
     bool load(const std::string& path);
 
     //将输出图像上的像素坐标换算为物理坐标（mm）。

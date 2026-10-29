@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QStringList>
 #include <vector>
+#include "PostPerspectiveRoi.h"
 
 namespace calibration {
 // A calibration of one fixed physical plane. This is not a pinhole camera model.
@@ -21,6 +22,8 @@ struct PlaneModel {
     cv::Size2d regionSize{310, 310};
     double requestedPixelsPerMm = 10;
     cv::Size outputSize;
+    PostPerspectiveRoi postRoi;
+    QString roiBinding()const;
 
     bool valid() const;
     double radiusLimit() const;
@@ -35,5 +38,8 @@ struct PlaneModel {
     QString fingerprint(bool includeRegion = true) const;
     bool save(const QString& path, bool measurement) const;
     static bool load(const QString& path, PlaneModel& model, bool requireRegion, QString& error);
+    static bool loadBaseProfile(const QString& path, PlaneModel& model, bool requireRegion, QString& error);
+private:
+    static bool loadImpl(const QString& path, PlaneModel& model, bool requireRegion, QString& error, bool applyPostRoi);
 };
 }

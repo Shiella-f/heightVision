@@ -130,7 +130,7 @@ bool CameraCorrector::warp(const cv::Mat& undistImg, cv::Mat& dst) const
     return true;
 }
 
-bool CameraCorrector::save(const std::string& path) const
+bool CameraCorrector::save(const std::string& path,const calibration::PostPerspectiveRoi* roi) const
 {
     if(!hasMap_) return false;
     try {
@@ -151,6 +151,7 @@ bool CameraCorrector::save(const std::string& path) const
     fs << "physicalOffsetYmm" << physicalOffsetMm_.y;
     if (!H_.empty())
         fs << "homography" << H_;
+    if(roi)roi->write(fs);
     const auto contents=fs.releaseAndGetString();QSaveFile file(QString::fromUtf8(path.c_str()));
     return file.open(QIODevice::WriteOnly) && file.write(contents.data(),qint64(contents.size()))==qint64(contents.size()) && file.commit();
     } catch(const cv::Exception&){return false;}

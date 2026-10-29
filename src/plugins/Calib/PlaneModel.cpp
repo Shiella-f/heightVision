@@ -119,7 +119,8 @@ bool PlaneModel::mapPoints(const std::vector<cv::Point2d>& raw,std::vector<cv::P
         cv::Point2d w;if(!rawToWorld(p,w,true))return false;w-=origin;
         constexpr double eps=1e-7;
         if(w.x < -eps||w.y < -eps||w.x>regionSize.width+eps||w.y>regionSize.height+eps)return false;
-        w.x=std::clamp(w.x,0.,regionSize.width);w.y=std::clamp(w.y,0.,regionSize.height);result.push_back(w);
+        w.x=std::clamp(w.x,0.,regionSize.width);w.y=std::clamp(w.y,0.,regionSize.height);
+        if(!postRoi.map(w))return false;result.push_back(w);
     }
     mm=std::move(result);return true;
 }
@@ -138,6 +139,7 @@ std::vector<cv::Point2d> PlaneModel::regionBoundary() const {
     return result;
 }
 bool PlaneModel::setRegion(cv::Point2d center,cv::Size2d size,double density,QString& error) {
+    postRoi={};
     regionValid=false;outputSize={};error.clear();
     report.remove("region_coverage");
     const bool changed=cv::norm(center-regionCenter)>1e-10||size!=regionSize;
@@ -196,7 +198,8 @@ QString PlaneModel::fingerprint(bool includeRegion) const {
     auto add=[&](double value){data.append(QByteArray::number(value,'g',17));data.append(';');};
     add(imageSize.width);add(imageSize.height);add(normalizationScale);add(distortionCenter.x);add(distortionCenter.y);
     add(radial[0]);add(radial[1]);for(int i=0;i<9;++i)add(worldHomography.ptr<double>()[i]);
-    if(includeRegion){add(regionCenter.x);add(regionCenter.y);add(regionSize.width);add(regionSize.height);}
+    if(includeRegion){add(regionCenter.x);add(regionCenter.y);add(regionSize.width);add(regionSize.height);
+        if(postRoi.enabled)for(int i=0;i<9;++i)add(postRoi.baseMmToRoiMm.ptr<double>()[i]);}
     return QString::fromLatin1(QCryptographicHash::hash(data,QCryptographicHash::Sha256).toHex());
 }
 bool PlaneModel::save(const QString& path,bool measurement) const {
@@ -221,11 +224,18 @@ bool PlaneModel::save(const QString& path,bool measurement) const {
           <<"actual_pix_per_mm_y"<<(regionValid?outputSize.height/regionSize.height:0.)
           <<"output_width_px"<<outputSize.width<<"output_height_px"<<outputSize.height
           <<"pixel_center_convention"<<"half_pixel"<<"model_region_hash"<<fingerprint().toStdString();
+        postRoi.write(fs);
         auto bytes=fs.releaseAndGetString();QSaveFile file(path);
         return file.open(QIODevice::WriteOnly)&&file.write(bytes.data(),qint64(bytes.size()))==qint64(bytes.size())&&file.commit();
     }catch(const cv::Exception&){return false;}
 }
 bool PlaneModel::load(const QString& path,PlaneModel& model,bool requireRegion,QString& error) {
+    return loadImpl(path,model,requireRegion,error,true);
+}
+bool PlaneModel::loadBaseProfile(const QString& path,PlaneModel& model,bool requireRegion,QString& error) {
+    return loadImpl(path,model,requireRegion,error,false);
+}
+bool PlaneModel::loadImpl(const QString& path,PlaneModel& model,bool requireRegion,QString& error,bool applyPostRoi) {
     model={};error.clear();
     try {
         QFile file(path);if(!file.open(QIODevice::ReadOnly)){error="无法读取平面标定文件。";return false;}
@@ -275,9 +285,15 @@ bool PlaneModel::load(const QString& path,PlaneModel& model,bool requireRegion,Q
                ||std::abs(actualY-candidate.outputSize.height/size.height)>1e-10){error="参数包实际采样密度与范围/像素尺寸不一致。";return false;}
         }
         if(requireRegion&&!candidate.regionValid){error="参数包没有有效测量范围。";return false;}
+        if(applyPostRoi && !candidate.postRoi.read(fs["post_perspective_roi"],candidate.outputSize,candidate.regionSize,candidate.requestedPixelsPerMm,
+            candidate.regionValid?halfPixelToMm(candidate.outputSize,candidate.regionSize):cv::Mat(),candidate.roiBinding(),error))return false;
         if(candidate.report.value("physical_validation").toObject().value("scope_hash").toString()!=candidate.fingerprint())
             candidate.report["physical_validation_status"]="unverified";
         model=std::move(candidate);return true;
     }catch(const std::exception& e){error=QString::fromUtf8(e.what());return false;}
+}
+QString PlaneModel::roiBinding()const{
+    QString key=fingerprint(false);for(double v:{regionCenter.x,regionCenter.y,regionSize.width,regionSize.height,requestedPixelsPerMm})key+=':'+QString::number(v,'g',12);
+    return key;
 }
 }

@@ -45,6 +45,9 @@ target_link_libraries(GuiCommon PUBLIC
 # CalibPlugin (shared)
 # ========================
 set(CALIB_PLUGIN_SOURCES
+    src/plugins/Calib/PostPerspectiveRoi.cpp
+    src/plugins/Calib/PostPerspectiveRoi.h
+    src/plugins/Calib/PostPerspectiveRoiPort.h
     src/plugins/Calib/PlaneModel.cpp
     src/plugins/Calib/PlaneModel.h
     src/plugins/Calib/PlaneCalibration.cpp
@@ -201,5 +204,7 @@ if(BUILD_TESTING)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
         add_subdirectory(tests)
     endif()
-    add_subdirectory(scripts/tests)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/CMakeLists.txt")
+        add_subdirectory(scripts/tests)
+    endif()
 endif()

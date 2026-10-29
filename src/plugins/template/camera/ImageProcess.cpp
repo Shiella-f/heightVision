@@ -4,6 +4,7 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include "../../Calib/MeasurementCalibration.h"
+#include "../../Calib/PlaneModel.h"
 
 ImageProcess::ImageProcess()
 {
@@ -45,6 +46,13 @@ cv::Mat ImageProcess::CalibImage(cv::Mat &originalImage)
 
 cv::Mat ImageProcess::WarPerspective(cv::Mat& originalImage){
     cv::Mat displayedFrame;
+    if(m_tiltCalibration.plane){
+        const auto& model=*m_tiltCalibration.plane;cv::Mat base;
+        if(originalImage.empty()||originalImage.size()!=model.imageSize)return {};
+        if((m_planeMapX.empty()||m_planeMapY.empty())&&!model.buildMaps(m_planeMapX,m_planeMapY))return {};
+        cv::remap(originalImage,base,m_planeMapX,m_planeMapY,cv::INTER_LINEAR,cv::BORDER_CONSTANT);
+        return model.postRoi.apply(base,displayedFrame)?displayedFrame:cv::Mat();
+    }
     if (!m_TiltParams.hasMap_) {
         qDebug() << "[CameraCorrector] 请先调用 computeMap()。\n";
         return cv::Mat();
@@ -53,7 +61,7 @@ cv::Mat ImageProcess::WarPerspective(cv::Mat& originalImage){
         return cv::Mat();
     cv::warpPerspective(originalImage, displayedFrame,m_TiltParams.homography,
         m_config.outSize(),cv::INTER_LINEAR,cv::BORDER_CONSTANT,cv::Scalar::all(0));
-    return displayedFrame;
+    cv::Mat result;return m_tiltCalibration.postRoi.apply(displayedFrame,result)?result:cv::Mat();
 }
 
 cv::Mat ImageProcess::apply3x3Calibration(const cv::Mat& originalImage)
@@ -79,6 +87,7 @@ cv::Mat ImageProcess::apply3x3Calibration(const cv::Mat& originalImage)
 }
 
 bool ImageProcess::loadCameraCalibration(const QString& path) {
+    m_TiltParams={};m_tiltCalibration={};m_planeMapX.release();m_planeMapY.release();
     m_isCameraCalibLoaded=false;m_map1.release();m_map2.release();
     m_cameraMatrix.release();m_distCoeffs.release();m_newCameraMatrix.release();m_calibImageSize={};
     MeasurementCalibration calibration;
@@ -92,39 +101,20 @@ bool ImageProcess::loadCameraCalibration(const QString& path) {
 
 bool ImageProcess::loadTiltCalibration(const QString& homographyPath)
 {
-    if (homographyPath.isEmpty()) {
-        qInfo().noquote() << "未选择相机校正文件，跳过该步骤";
-        return false;
-    } else {
-        try{
-            cv::FileStorage fs(std::string(homographyPath.toStdString()), cv::FileStorage::READ);
-            if (!fs.isOpened()) return false;
-            fs["gridCols"]    >> m_config.gridCols;
-            fs["gridRows"]    >> m_config.gridRows;
-            fs["squareMm"]    >> m_config.squareMm;
-            fs["outWidthMm"]  >> m_config.outWidthMm;
-            fs["outHeightMm"] >> m_config.outHeightMm;
-            fs["pixPerMm"]    >> m_config.pixPerMm;
-            if (!fs["homography"].empty())
-            {
-                fs["homography"] >> m_TiltParams.homography;
-                m_TiltParams.hasMap_ = !m_TiltParams.homography.empty();
-                return m_TiltParams.hasMap_;
-            }else
-            {
-                m_TiltParams.hasMap_ = false;
-                return false;
-            }
-            fs.release();
-        }
-        
-        catch(const std::exception& e)
-        {
-            qInfo().noquote() << QString("加载相机校正数据异常: %1").arg(e.what());
-            m_TiltParams.hasMap_ = false;
-            return false;
-        }
+    m_TiltParams={};m_tiltCalibration={};m_planeMapX.release();m_planeMapY.release();resetPhysicalOffset();
+    MeasurementCalibration candidate;candidate.imageSize=m_calibImageSize;candidate.cameraMatrix=m_cameraMatrix;
+    candidate.distCoeffs=m_distCoeffs;candidate.newCameraMatrix=m_newCameraMatrix;
+    if(homographyPath.isEmpty()||!candidate.loadPerspective(homographyPath))return false;
+    if(candidate.plane){m_tiltCalibration=std::move(candidate);m_TiltParams.hasMap_=true;m_isCameraCalibLoaded=false;return true;}
+    if(candidate.outputPixels().empty())return false;
+    m_config.outWidthMm=candidate.outputMm.width;m_config.outHeightMm=candidate.outputMm.height;m_config.pixPerMm=candidate.pixPerMm;
+    physicalOffsetMm_=candidate.offsetMm;m_TiltParams.homography=candidate.renderHomography();m_TiltParams.hasMap_=true;
+    if(candidate.hasCamera()){
+        m_calibImageSize=candidate.imageSize;m_cameraMatrix=candidate.cameraMatrix;m_distCoeffs=candidate.distCoeffs;m_newCameraMatrix=candidate.newCameraMatrix;
+        m_map1.release();m_map2.release();m_isCameraCalibLoaded=true;
     }
+    if(candidate.postRoi.enabled)physicalOffsetMm_={0,0};
+    m_tiltCalibration=std::move(candidate);return true;
 }
 
 bool ImageProcess::load3x3Calibration(const QString& calibPath2)
@@ -268,6 +258,9 @@ bool ImageProcess::m_isTiltLoaded() const
 
 double ImageProcess::mmPixel() const
 {
+    const auto& roi=m_tiltCalibration.plane?m_tiltCalibration.plane->postRoi:m_tiltCalibration.postRoi;
+    if(roi.enabled)return 300./roi.outputSize.width;
+    if(m_tiltCalibration.plane)return m_tiltCalibration.plane->regionSize.width/m_tiltCalibration.plane->outputSize.width;
     if (m_TiltParams.hasMap_) {
         // 假设 mmPerPixel 是通过某种方式计算得到的
          return 1.0 / m_config.pixPerMm;
@@ -283,6 +276,7 @@ void ImageProcess::resetPhysicalOffset()
 bool ImageProcess::setCoordinateOriginByPair(cv::Point2d pixelPt,
                                                 cv::Point2d physicalPtMm)
 {
+    if(m_tiltCalibration.postRoi.enabled||(m_tiltCalibration.plane&&m_tiltCalibration.plane->postRoi.enabled))return false;
     if (m_config.pixPerMm <= 0.0)
     {
         std::cerr << "[BoardHomography] pixPerMm 非法，无法设置二次初始化偏移。\n";

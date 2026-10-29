@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include <QString>
+#include "PostPerspectiveRoiPort.h"
 #include <QImage>
 #include <opencv2/opencv.hpp>
 #include <QWidget>
@@ -83,6 +84,10 @@ public:
     virtual bool MapInputToBoard(const QPointF& input,QPointF& boardMm) const = 0;
     virtual bool SetOutputRegion(const QPointF& centerMm,double widthMm,double heightMm,double pixelsPerMm) = 0;
     virtual QJsonObject GetReport() const = 0;
+    virtual bool LoadPerspectiveCalibration(const QString& path) = 0;
+    virtual bool SetPostPerspectiveRoi(const PostPerspectiveRoiConfig& config) = 0;
+    virtual void ClearPostPerspectiveRoi() = 0;
+    virtual bool RenderBaseImage(const cv::Mat& input,cv::Mat& output) const = 0;
 protected:
     CameraWarptivePort() = default;
 };

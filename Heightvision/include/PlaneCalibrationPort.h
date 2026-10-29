@@ -1,5 +1,6 @@
 #pragma once
 #include <QJsonObject>
+#include "PostPerspectiveRoiPort.h"
 #include <QPointF>
 #include <QSizeF>
 #include <QString>
@@ -38,6 +39,9 @@ public:
     virtual bool SaveMeasurementCalibration(const QString& path) const = 0;
     // Image-supported board inspection only; leaves model, ROI and acceptance untouched.
     virtual bool InspectBoard(const cv::Mat& image,const QJsonObject& board,QJsonObject& report) const = 0;
+    virtual bool SetPostPerspectiveRoi(const PostPerspectiveRoiConfig& config) = 0;
+    virtual void ClearPostPerspectiveRoi() = 0;
+    virtual bool RenderBaseImage(const cv::Mat& input,cv::Mat& output) const = 0;
 protected:
     PlaneCalibrationPort() = default;
 };

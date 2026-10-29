@@ -3,6 +3,7 @@
 #include "../Scene/MirrorScene.h"
 #include "MirrorCalibPort.h"
 #include "../../MeasurementCalibration.h"
+#include "../../PerspectiveRemap.h"
 
 class MirrorCalibFunction : public QObject, public CalibWarptivePort {
     Q_OBJECT
@@ -18,9 +19,17 @@ public:
 
 private:
     void clearResult();
+    void clearCalibration();
+    bool renderBase(const cv::Mat& raw, cv::Mat& base);
+    bool rectifiedPointsToMm(const std::vector<cv::Point2f>& points,
+                             std::vector<cv::Point2d>& millimeters) const;
     MirrorCalib m_core;
     MirrorScene* m_scene = nullptr;
     std::vector<cv::Point2f> m_points;
     std::vector<cv::Point2d> m_physicalPoints;
     MeasurementCalibration m_calibration;
+    MeasurementCalibration m_renderCalibration;
+    calibration::PerspectiveRemapper m_remapper;
+    cv::Mat m_planeMapX, m_planeMapY, m_pixelToMm;
+    cv::Size m_outputSize;
 };
